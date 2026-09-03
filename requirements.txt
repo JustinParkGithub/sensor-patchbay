@@ -1,0 +1,9 @@
+# Core runtime. The engine + web UI need nothing outside the standard library;
+# these are only for the real input source and the real output sink.
+
+pynput>=1.7.6          # virtual mouse + keyboard (Linux/uinput+X11, macOS, Windows)
+joycon-python>=0.2.4   # imported as `pyjoycon`; talks to a paired Joy-Con over HID
+hidapi>=0.14.0         # backend for joycon-python
+
+# joycon-python pulls pyglm on some versions for its quaternion helper. If
+# `pip install joycon-python` complains, add:  pyglm>=2.7

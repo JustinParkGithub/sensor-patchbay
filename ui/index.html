@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>joycon-patchbay</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header id="bar">
+  <div class="brand"><span class="glyph">▚</span> joycon&#8202;·&#8202;patchbay</div>
+
+  <div class="group presets">
+    <select id="presetSel" title="preset"></select>
+    <button id="loadBtn">Load</button>
+    <button id="saveBtn" class="accent">Save</button>
+    <button id="saveAsBtn">Save as&hellip;</button>
+    <button id="newBtn">New</button>
+    <button id="delBtn" class="danger-ghost">Delete</button>
+  </div>
+
+  <div class="spacer"></div>
+
+  <div class="group status" id="statusBox">
+    <span class="pill" id="linkPill"><i></i> link</span>
+    <span class="pill" id="srcPill"><i></i> source</span>
+    <span class="pill" id="sinkPill"><i></i> sink</span>
+    <span class="rate" id="ratePill">&mdash; Hz</span>
+  </div>
+
+  <button id="panicBtn" title="disable all outputs">PANIC</button>
+</header>
+
+<main id="patch">
+  <svg id="cables" xmlns="http://www.w3.org/2000/svg"></svg>
+  <section class="col" id="sources"><h2>Sources</h2><div class="modules" id="srcMods"></div></section>
+  <section class="col" id="sinks"><h2>Sinks</h2><div class="modules" id="sinkMods"></div></section>
+</main>
+
+<div id="hint">Click a <b>source</b> jack, then a <b>sink</b> jack, to patch. Click a cable to shape it.</div>
+
+<aside id="inspector" hidden>
+  <div class="insp-head">
+    <div>
+      <div class="insp-title" id="inspTitle">connection</div>
+      <div class="insp-sub" id="inspSub"></div>
+    </div>
+    <button id="inspClose" aria-label="close">&times;</button>
+  </div>
+  <label class="row-toggle"><input type="checkbox" id="inspEnabled"> connection enabled</label>
+  <div class="chain-wrap">
+    <div class="chain-label">transform chain <span>source &rarr; &hellip; &rarr; sink</span></div>
+    <div id="chainList"></div>
+    <div class="chain-add">
+      <select id="nodeType"></select>
+      <button id="addNode">+ add node</button>
+    </div>
+  </div>
+  <button id="inspDelete" class="danger">Delete connection</button>
+</aside>
+
+<div id="toast" hidden></div>
+
+<script src="/app.js"></script>
+</body>
+</html>

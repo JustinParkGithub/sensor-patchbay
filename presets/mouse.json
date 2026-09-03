@@ -1,0 +1,53 @@
+{
+  "name": "mouse",
+  "connections": [
+    {
+      "id": "m_dx",
+      "source": "joycon/gyro.y",
+      "sink": "hid/mouse.dx",
+      "chain": [
+        {"type": "scale", "params": {"factor": 0.006}},
+        {"type": "deadzone", "params": {"threshold": 0.04}},
+        {"type": "expo", "params": {"amount": 0.45}},
+        {"type": "scale", "params": {"factor": 1600.0}},
+        {"type": "clamp", "params": {"lo": -2500.0, "hi": 2500.0}}
+      ]
+    },
+    {
+      "id": "m_dy",
+      "source": "joycon/gyro.x",
+      "sink": "hid/mouse.dy",
+      "chain": [
+        {"type": "scale", "params": {"factor": 0.006}},
+        {"type": "deadzone", "params": {"threshold": 0.04}},
+        {"type": "expo", "params": {"amount": 0.45}},
+        {"type": "scale", "params": {"factor": 1600.0}},
+        {"type": "invert", "params": {}},
+        {"type": "clamp", "params": {"lo": -2500.0, "hi": 2500.0}}
+      ]
+    },
+    {"id": "m_left", "source": "joycon/btn.zr", "sink": "hid/mouse.left", "chain": []},
+    {"id": "m_right", "source": "joycon/btn.r", "sink": "hid/mouse.right", "chain": []},
+    {
+      "id": "m_wheel",
+      "source": "joycon/stick.y",
+      "sink": "hid/mouse.wheel",
+      "chain": [
+        {"type": "deadzone", "params": {"threshold": 0.2}},
+        {"type": "scale", "params": {"factor": 8.0}},
+        {"type": "rate_limit", "params": {"per_sec": 12.0}}
+      ]
+    },
+    {
+      "id": "m_flick",
+      "source": "joycon/accel.mag",
+      "sink": "hid/mouse.btn_forward",
+      "chain": [
+        {"type": "threshold", "params": {"level": 2.2, "mode": "gt"}},
+        {"type": "debounce", "params": {"ms": 500.0}},
+        {"type": "hold", "params": {"ms": 80.0}}
+      ]
+    },
+    {"id": "m_preset", "source": "joycon/btn.home", "sink": "sys/preset.cycle", "chain": []}
+  ]
+}
