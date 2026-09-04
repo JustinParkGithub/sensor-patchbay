@@ -3,7 +3,7 @@
   "connections": [
     {
       "id": "m_dx",
-      "source": "joycon/gyro.y",
+      "source": "joycon/gyro.x",
       "sink": "hid/mouse.dx",
       "enabled": true,
       "chain": [
@@ -42,7 +42,7 @@
     },
     {
       "id": "m_dy",
-      "source": "joycon/gyro.x",
+      "source": "joycon/gyro.y",
       "sink": "hid/mouse.dy",
       "enabled": true,
       "chain": [
@@ -118,7 +118,7 @@
         {
           "type": "rate_limit",
           "params": {
-            "per_sec": 12
+            "per_sec": 100
           }
         }
       ]
@@ -154,6 +154,13 @@
       "id": "m_preset",
       "source": "joycon/btn.home",
       "sink": "sys/preset.cycle",
+      "enabled": true,
+      "chain": []
+    },
+    {
+      "id": "c_9dc00d7a",
+      "source": "joycon/gyro.x",
+      "sink": "hid/mouse.dx",
       "enabled": true,
       "chain": []
     }
