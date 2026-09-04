@@ -145,8 +145,25 @@ class Handler(BaseHTTPRequestHandler):
             return
 
 
+class Server(ThreadingHTTPServer):
+    def handle_error(self, request, client_address):
+        # A client (almost always the browser: a reload, a closed tab, an
+        # idle HTTP/1.1 keep-alive socket) tearing down the connection
+        # mid-request lands here as ConnectionResetError/BrokenPipeError, and
+        # it happens inside socketserver's own request dispatch — before our
+        # routing runs, so the try/except around the SSE stream below can't
+        # catch it. It's normal keep-alive churn, not a bug; don't spam
+        # stderr with a traceback for it. Anything else still prints, same
+        # as the base class, since that *would* be worth seeing.
+        import sys
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionResetError, BrokenPipeError)):
+            return
+        super().handle_error(request, client_address)
+
+
 def serve(engine, host="127.0.0.1", port=8420):
     Handler.engine = engine
-    httpd = ThreadingHTTPServer((host, port), Handler)
+    httpd = Server((host, port), Handler)
     httpd.daemon_threads = True
     return httpd
