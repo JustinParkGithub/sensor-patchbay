@@ -14,12 +14,20 @@ sensors arrive you add a single file — `plugins/pico_serial.py` — and the gr
 the transforms, the GUI, the output adapters and the presets are unchanged.
 
 ```
-Joy-Con (R)  ──BT──►  plugins/joycon_r.py ──►  engine (bus + graph + nodes) ──►  sinks/mouse_keyboard.py ──►  OS
-                              ▲                        ▲     ▲                             ▲
-                         mock source            fixed 120 Hz  presets/*.json         sinks/generic_out.py ──UDP──► your robot bridge
-                                                        │
-                                              ui/  (patch panel, SSE + REST)
+Joy-Con (R)  ──BT───►  plugins/joycon_r.py  ─┐
+                                              ├─►  engine (bus + graph + nodes) ──►  sinks/mouse_keyboard.py ──►  OS
+Nano + BMI160 ──USB──► plugins/arduino_bmi160.py ─┘        ▲     ▲                             ▲
+                                                     fixed 120 Hz  presets/*.json         sinks/generic_out.py ──UDP──► your robot bridge
+                                                            │
+                                                  ui/  (patch panel, SSE + REST)
 ```
+
+Every source and sink is a plugin registered by `id` in `engine/registry.py`
+(`--list-sources` / `--list-sinks` shows what's available). Joy-Con/mock and
+the mouse+keyboard sink have their own dedicated flags below because they're
+deliberate stand-ins for each other under one shared bus id; anything else —
+the BMI160, a future MIDI or OSC sink, another sensor — is added with
+`--source`/`--sink` and no changes to `run.py`. See **Extending it**.
 
 ---
 
@@ -47,6 +55,9 @@ python run.py --preset keyboard                   # start on the tilt-to-WASD pr
 | `--robot` | also fan every routed signal out to `sinks/generic_out.py` (UDP/JSON) |
 | `--rate HZ` | engine tick rate (default 120) |
 | `--list-ports` | print every source/sink port and exit |
+| `--source NAME[:k=v,...]` | add a registered source plugin (repeatable) — e.g. `--source bmi160:port=/dev/ttyUSB0` |
+| `--sink NAME[:k=v,...]` | add a registered sink plugin (repeatable) — e.g. `--sink robot:host=192.168.1.5` |
+| `--list-sources` / `--list-sinks` | list what's registered and its constructor args, then exit |
 | `--selftest` | headless: run mock → dry-run for 2 s, assert, exit |
 | `--host` / `--port` | bind address for the UI (default `127.0.0.1:8420`) |
 
@@ -86,6 +97,51 @@ python -c "from pyjoycon import get_R_id; print(get_R_id())"   # -> (1406, 8199,
 
 The right Joy-Con held horizontally (SL/SR up, rail to the left) is the reference
 orientation for `tilt.pitch` / `tilt.roll`.
+
+---
+
+## Adding a source: Arduino Nano + BMI160
+
+`plugins/arduino_bmi160.py` reads a Nano running `firmware/bmi160_nano/bmi160_nano.ino`
+over USB serial — no Bluetooth, no pairing, just a cable.
+
+**Wire it up** (I2C): BMI160 `VCC`→`5V` (or `3V3`, check your breakout),
+`GND`→`GND`, `SCL`→`A5`, `SDA`→`A4`.
+
+**Flash it**: open `firmware/bmi160_nano/bmi160_nano.ino` in the Arduino IDE,
+install the **BMI160-Arduino** library (Library Manager, or
+https://github.com/hanyazou/BMI160-Arduino), select *Arduino Nano* as the
+board, upload.
+
+**Run it**:
+
+```bash
+python -m pip install -r requirements.txt      # adds pyserial
+python run.py --source bmi160 --preset bmi160-mouse
+#   port is auto-detected; if that fails, or you have more than one board
+#   plugged in, be explicit:
+python run.py --source bmi160:port=/dev/ttyACM0     # Linux
+python run.py --source bmi160:port=COM5             # Windows
+python run.py --source bmi160:port=/dev/cu.usbserial-1420   # macOS
+```
+
+This *adds* the `bmi160` source alongside the default Joy-Con/mock slot — both
+run at once, so you can patch either (or both) into the same sinks. `--preset
+bmi160-mouse` is a starting air-mouse mapping (`gyro.x/y` → cursor, a shake
+past 2.2 g → left-click) since this board has no buttons of its own; wire up
+whatever else you like in the patch panel.
+
+**Linux serial permissions**: your user needs to be in the `dialout` group
+(`sudo usermod -aG dialout $USER`, then log out/in) or the port opens with
+"Permission denied".
+
+**If ports look wrong or jump around**: the firmware sends a fixed ±2 g /
+±250 deg/s range explicitly (`BMI160.setAccelerometerRange`/`setGyroRange` in
+the sketch) — `ACCEL_LSB_PER_G`/`GYRO_LSB_PER_DPS` at the top of
+`plugins/arduino_bmi160.py` assume exactly that. Change both sides together if
+you reconfigure the sensor's range. If pitch/roll are inverted for how you've
+mounted the board, that's an orientation convention, not a bug — flip the axis
+with an `invert` node in the patch panel rather than editing the plugin.
 
 ---
 
@@ -143,6 +199,14 @@ source.
 | `accel.mag` | threshold 2.5 g · debounce 400 ms · hold | `key.esc` (shake) |
 | `btn.home` | — | `sys/preset.cycle` |
 
+**`bmi160-mouse.json`** — air-mouse, BMI160
+
+| source | chain | sink |
+|---|---|---|
+| `gyro.y` | scale · deadzone · expo · scale · clamp | `mouse.dx` |
+| `gyro.x` | scale · deadzone · expo · scale · invert · clamp | `mouse.dy` |
+| `accel.mag` | threshold 2.2 g · debounce 500 ms · hold | `mouse.left` (shake to click) |
+
 Raw Joy-Con sensor units are arbitrary but stable — tune magnitudes with a
 `scale` node in the preset, never in the plugin, so a preset built against the
 mock source works unchanged on real hardware.
@@ -177,6 +241,10 @@ mock source works unchanged on real hardware.
 `gyro.*` is deg/s, `accel.*` is g, `tilt.*` is gravity-referenced degrees
 (drift-free), `accel.mag` ≈ 1.0 at rest and spikes on a shake.
 
+**Source `bmi160`** (with `--source bmi160`) — `accel.x/y/z`, `accel.mag`,
+`gyro.x/y/z`, `tilt.pitch`, `tilt.roll`. Same units and the same derived-tilt
+convention as `joycon` above; no buttons or stick — it's a bare IMU.
+
 **Sink `hid`** — `mouse.dx`, `mouse.dy` (pixels/second), `mouse.wheel`
 (clicks/second), `mouse.{left,right,middle,btn_back,btn_forward}`, and
 `key.<name>` for any single character or named key (`space`, `esc`, `enter`,
@@ -191,29 +259,48 @@ any port id you invent; see below.
 
 ## Extending it
 
+Every source and sink is a plugin registered by `id` in a small registry
+(`engine/registry.py`) so adding one is *one new file* — no edits to `run.py`,
+the engine, or the UI. `--list-sources` / `--list-sinks` show everything
+currently registered, including the constructor args each one takes.
+
 ### A new output — subclass `sinks.base.Sink`
 
 ```python
+from engine.registry import register_sink
 from engine.signals import PortSpec, SCALAR, EVENT
 from sinks.base import Sink
 
+@register_sink
 class MidiSink(Sink):
     id = "midi"; label = "MIDI out"
     PORTS = [PortSpec("cc.1", SCALAR, "mod wheel", "midi"),
              PortSpec("note.60", EVENT, "middle C", "midi")]
+    ARGS = {"port_name": {"default": None, "type": str, "help": "MIDI output port"}}
+    def __init__(self, port_name=None): self._port_name = port_name
     def start(self): import rtmidi; self.out = rtmidi.MidiOut(); self.out.open_port(0)
     def apply(self, values, dt):
         if "cc.1" in values: self.out.send_message([0xB0, 1, int(values["cc.1"] * 127)])
     def release_all(self): ...
 ```
 
-Register it in `engine/registry`-style wiring inside `run.py` (`build_sinks`).
+Drop that in `sinks/midi.py` and it's immediately usable as
+`python run.py --sink midi` (or `--sink midi:port_name=IAC Driver`) — nothing
+else to touch. `@register_sink` + `id` is all `--list-sinks` and `--sink` need
+to find it; `ARGS` is only for CLI parsing (types + `--list-sinks` help text).
 
 ### A new input — subclass `plugins.base.Source`
 
 Return `{port_id: float}` from `read()` each tick; flatten vectors to
 `accel.x` etc. Keep `read()` non-blocking (do I/O on your own thread, like
-`plugins/joycon_r.py`).
+`plugins/joycon_r.py` or `plugins/arduino_bmi160.py`). Decorate with
+`@register_source` (from `engine.registry`) the same way, and it's usable as
+`--source yourid[:k=v,...]`.
+
+The one exception: don't register a class that's a deliberate *stand-in* for
+another under the same `id` (the mock Joy-Con, the dry-run HID sink) — the
+registry is one-class-per-id, and that choice is already made explicitly in
+`run.py` (`--mock`, `--dry-run`) rather than left to the registry to arbitrate.
 
 ### A robot arm — use the `robot` sink, write a bridge
 
@@ -240,11 +327,12 @@ python bridges/serial_bridge.py /dev/ttyACM0 --map axis.0,axis.1,gripper
 ## Layout
 
 ```
-engine/     signals.py  nodes.py  graph.py  loop.py      # bus, transforms, routing, fixed-rate loop
-plugins/    base.py  joycon_r.py  mock.py                 # sources
+engine/     signals.py  nodes.py  graph.py  loop.py  registry.py   # bus, transforms, routing, fixed-rate loop, plugin registry
+plugins/    base.py  joycon_r.py  mock.py  arduino_bmi160.py        # sources
 sinks/      base.py  mouse_keyboard.py  null.py  generic_out.py
 ui/         index.html  style.css  app.js                 # patch panel — vanilla, no build step
-presets/    mouse.json  keyboard.json
+presets/    mouse.json  keyboard.json  bmi160-mouse.json
+firmware/   bmi160_nano/bmi160_nano.ino                    # Arduino Nano + BMI160 sketch
 bridges/    serial_bridge.py                              # example robot bridge
 server.py   http.server + Server-Sent Events + REST       # stdlib only
 run.py      entrypoint
@@ -253,13 +341,19 @@ run.py      entrypoint
 ## Notes
 
 - The engine loop, the graph and every node are pure standard library. The web UI
-  is served by `http.server` and talks over `fetch` + `EventSource`. `pynput` and
-  `joycon-python` are the only third-party pieces, and only for real I/O.
+  is served by `http.server` and talks over `fetch` + `EventSource`. `pynput`,
+  `joycon-python` and `pyserial` are the only third-party pieces, and only for
+  real I/O.
 - The engine runs at 120 Hz by default; that is plenty for motion input and keeps
   Python comfortable without numpy.
 - `--selftest` is the CI check (mock source → dry-run sink, asserts the snapshot).
 - Tested here: engine math, the REST API, the SSE stream, presets and panic via
-  `--selftest` and a scripted API pass. The browser UI's JavaScript is
-  syntax- and logic-checked but was not rendered in a real browser in the build
-  environment — give it a visual once-over on first run.
+  `--selftest` and a scripted API pass; the plugin registry (`discover`,
+  `--list-sources`/`--list-sinks`, `--source`/`--sink` instantiation) with a
+  scripted CLI pass. `plugins/arduino_bmi160.py`'s parser/calibration/tilt math
+  is unit-tested against synthetic serial frames — it has not been run against
+  a real Nano+BMI160 in the build environment; check `--list-ports` picks up
+  `bmi160` and the meters move once you have the hardware in hand. The browser
+  UI's JavaScript is syntax- and logic-checked but was not rendered in a real
+  browser in the build environment — give it a visual once-over on first run.
 ```

@@ -1,0 +1,40 @@
+{
+  "name": "bmi160-mouse",
+  "connections": [
+    {
+      "id": "b_dx",
+      "source": "bmi160/gyro.y",
+      "sink": "hid/mouse.dx",
+      "chain": [
+        {"type": "scale", "params": {"factor": 0.006}},
+        {"type": "deadzone", "params": {"threshold": 0.04}},
+        {"type": "expo", "params": {"amount": 0.45}},
+        {"type": "scale", "params": {"factor": 1600.0}},
+        {"type": "clamp", "params": {"lo": -2500.0, "hi": 2500.0}}
+      ]
+    },
+    {
+      "id": "b_dy",
+      "source": "bmi160/gyro.x",
+      "sink": "hid/mouse.dy",
+      "chain": [
+        {"type": "scale", "params": {"factor": 0.006}},
+        {"type": "deadzone", "params": {"threshold": 0.04}},
+        {"type": "expo", "params": {"amount": 0.45}},
+        {"type": "scale", "params": {"factor": 1600.0}},
+        {"type": "invert", "params": {}},
+        {"type": "clamp", "params": {"lo": -2500.0, "hi": 2500.0}}
+      ]
+    },
+    {
+      "id": "b_click",
+      "source": "bmi160/accel.mag",
+      "sink": "hid/mouse.left",
+      "chain": [
+        {"type": "threshold", "params": {"level": 2.2, "mode": "gt"}},
+        {"type": "debounce", "params": {"ms": 500.0}},
+        {"type": "hold", "params": {"ms": 80.0}}
+      ]
+    }
+  ]
+}

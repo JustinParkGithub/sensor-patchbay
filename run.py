@@ -8,6 +8,10 @@
     python run.py --preset keyboard
     python run.py --list-ports
     python run.py --selftest      # headless: tick mock->null for 2s and exit
+    python run.py --source bmi160:port=/dev/ttyUSB0     # add a registered plugin source
+    python run.py --sink robot:host=192.168.1.5,port=9870
+    python run.py --list-sources  # what's pluggable, and its constructor args
+    python run.py --list-sinks
 
 Then open http://127.0.0.1:8420 in a browser on the same machine.
 """
@@ -21,6 +25,7 @@ from pathlib import Path
 
 from engine.graph import Graph
 from engine.loop import EngineLoop
+from engine.registry import SINKS, SOURCES, describe, discover, instantiate
 
 HERE = Path(__file__).parent
 PRESETS = HERE / "presets"
@@ -63,6 +68,30 @@ def build_sinks(args):
                                         echo=args.robot_echo)
         print(f"[robot] generic UDP/JSON out -> {args.robot_host}:{args.robot_port}")
     return sinks
+
+
+def build_extra(registry: dict, specs: list, kind: str) -> dict:
+    """Instantiate every ``NAME[:k=v,...]`` spec against a plugin registry.
+
+    Shared by --source and --sink: anything beyond the built-in joycon/mock
+    and hid/null/robot slots goes through here, keyed by the resulting
+    instance's own ``.id`` (same convention build_source/build_sinks use).
+    A spec that fails to build (bad arg, hardware not found, ...) is logged
+    and skipped rather than aborting the whole run.
+    """
+    out = {}
+    for spec in specs:
+        try:
+            inst = instantiate(registry, spec)
+        except Exception as e:
+            print(f"[{kind}] failed to build '{spec}': {e}")
+            continue
+        if inst.id in out:
+            print(f"[{kind}] '{inst.id}' already added; skipping duplicate '{spec}'")
+            continue
+        out[inst.id] = inst
+        print(f"[{kind}] {inst.id} ready ({spec})")
+    return out
 
 
 def load_graph(name: str) -> Graph:
@@ -117,18 +146,45 @@ def main():
     ap.add_argument("--robot-host", default="127.0.0.1")
     ap.add_argument("--robot-port", type=int, default=9870)
     ap.add_argument("--robot-echo", action="store_true")
-    ap.add_argument("--list-ports", action="store_true")
+    ap.add_argument("--list-ports", action="store_true", help="print every source/sink port and exit")
+    ap.add_argument("--source", action="append", default=[], metavar="NAME[:k=v,...]",
+                    help="add a source from the plugin registry (repeatable); see --list-sources")
+    ap.add_argument("--sink", action="append", default=[], metavar="NAME[:k=v,...]",
+                    help="add a sink from the plugin registry (repeatable); see --list-sinks")
+    ap.add_argument("--list-sources", action="store_true",
+                    help="list registered source plugins and their args, then exit")
+    ap.add_argument("--list-sinks", action="store_true",
+                    help="list registered sink plugins and their args, then exit")
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
 
+    discover()  # populate SOURCES/SINKS by importing plugins/*.py, sinks/*.py
+
+    if args.list_sources:
+        return print(describe(SOURCES))
+    if args.list_sinks:
+        return print(describe(SINKS))
     if args.selftest:
         return selftest()
     if args.list_ports:
         return list_ports(args.mock)
 
     from server import serve
-    engine = EngineLoop({"joycon": build_source(args.mock)}, build_sinks(args),
-                        load_graph(args.preset), PRESETS, rate=args.rate)
+    sources = {"joycon": build_source(args.mock)}
+    for sid, src in build_extra(SOURCES, args.source, "source").items():
+        if sid in sources:
+            print(f"[source] '{sid}' already present; skipping --source duplicate")
+            continue
+        sources[sid] = src
+
+    sinks = build_sinks(args)
+    for sid, sink in build_extra(SINKS, args.sink, "sink").items():
+        if sid in sinks:
+            print(f"[sink] '{sid}' already present; skipping --sink duplicate")
+            continue
+        sinks[sid] = sink
+
+    engine = EngineLoop(sources, sinks, load_graph(args.preset), PRESETS, rate=args.rate)
     engine.start()
     httpd = serve(engine, args.host, args.port)
     url = f"http://{args.host}:{args.port}"

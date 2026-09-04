@@ -25,16 +25,25 @@ import json
 import socket
 import time
 
+from engine.registry import register_sink
 from engine.signals import PortSpec, SCALAR, EVENT
 from sinks.base import Sink
 
 DEFAULT_PORTS = [f"axis.{i}" for i in range(6)] + ["gripper", "e-stop"]
 
 
+@register_sink
 class GenericOutSink(Sink):
     id = "robot"
     label = "generic out (UDP/JSON)"
     accepts_any = True
+    ARGS = {
+        "host": {"default": "127.0.0.1", "type": str, "help": "UDP target host"},
+        "port": {"default": 9870, "type": int, "help": "UDP target port"},
+        "echo": {"default": False, "type": lambda v: v.lower() in ("1", "true", "yes", "on"),
+                 "help": "also print each datagram"},
+        "hz": {"default": 100.0, "type": float, "help": "max send rate"},
+    }
 
     def __init__(self, host="127.0.0.1", port=9870, ports=None, echo=False, hz=100.0):
         self._addr = (host, int(port))
