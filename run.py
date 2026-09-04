@@ -32,17 +32,22 @@ PRESETS = HERE / "presets"
 
 
 def build_source(force_mock: bool):
-    if not force_mock:
-        try:
-            from plugins.joycon_r import JoyConR
-            src = JoyConR()
-            print("[joycon] connected")
-            return src
-        except Exception as e:
-            print(f"[joycon] falling back to mock source: {e}")
-    from plugins.mock import MockJoyCon
-    print("[joycon] using mock source")
-    return MockJoyCon()
+    if force_mock:
+        from plugins.mock import MockJoyCon
+        print("[joycon] using mock source (--mock)")
+        return MockJoyCon()
+    try:
+        from plugins.joycon_r import JoyConR
+        src = JoyConR()
+        print("[joycon] connected")
+        return src
+    except Exception as e:
+        # No real Joy-Con and mock wasn't requested: skip the Joy-Con source
+        # entirely rather than silently substituting synthetic data. Any other
+        # --source plugins still load.
+        print(f"[joycon] not connected ({e}); no Joy-Con source "
+              "(pass --mock for the synthetic source)")
+        return None
 
 
 def build_sinks(args):
@@ -126,7 +131,9 @@ def list_ports(force_mock):
     src = build_source(force_mock)
     from sinks.mouse_keyboard import MouseKeyboardSink
     from sinks.generic_out import GenericOutSink
-    for m in (src.module(), MouseKeyboardSink().module(), GenericOutSink().module()):
+    modules = [src.module()] if src is not None else []
+    modules += [MouseKeyboardSink().module(), GenericOutSink().module()]
+    for m in modules:
         print(f"\n{m.kind.upper()}  {m.id}  ({m.label}) [{m.status}]")
         for p in m.ports:
             pd = p if isinstance(p, dict) else p.to_dict()
@@ -170,7 +177,10 @@ def main():
         return list_ports(args.mock)
 
     from server import serve
-    sources = {"joycon": build_source(args.mock)}
+    sources = {}
+    joycon = build_source(args.mock)
+    if joycon is not None:
+        sources["joycon"] = joycon
     for sid, src in build_extra(SOURCES, args.source, "source").items():
         if sid in sources:
             print(f"[source] '{sid}' already present; skipping --source duplicate")

@@ -88,6 +88,9 @@ class ArduinoBMI160(Source):
         self._gyro_bias = [0.0, 0.0, 0.0]
         self._stop = threading.Event()
         self._thread = None
+        self._frames = 0        # valid 6-int frames parsed since start
+        self._unparsed = 0      # consecutive non-empty lines that didn't parse
+        self._warned_format = False
 
         import serial  # raises ImportError if pyserial isn't installed
         self._serial_mod = serial
@@ -98,7 +101,19 @@ class ArduinoBMI160(Source):
     # ------------------------------------------------------------------
     def _open(self):
         port = self._port_arg or _autodetect_port()
-        self._ser = self._serial_mod.Serial(port, self._baud, timeout=0.5)
+        try:
+            self._ser = self._serial_mod.Serial(port, self._baud, timeout=0.5)
+        except self._serial_mod.SerialException as e:
+            # errno 16 (EBUSY) almost always means another program already has
+            # the port open — on macOS the Arduino IDE's Serial Monitor is the
+            # usual culprit, and cu.* / tty.* are the same device so either one
+            # locks out the other. Say so instead of surfacing "Resource busy".
+            if getattr(e, "errno", None) == 16 or "Resource busy" in str(e):
+                raise RuntimeError(
+                    f"{port} is busy — another program has it open. Close the "
+                    "Arduino Serial Monitor (or any other serial console), then "
+                    "retry.") from e
+            raise
         self._port_arg = port  # remember what we resolved to, for reconnects
 
     def start(self):
@@ -116,7 +131,14 @@ class ArduinoBMI160(Source):
                 pass
 
     def status(self):
-        return "ok" if self._ok else "disconnected"
+        if not self._ok:
+            return "disconnected"
+        # Bytes are arriving but nothing parses as a 6-int frame — almost always
+        # the wrong sketch or a baud mismatch. Say so rather than reporting "ok"
+        # while every port silently reads its initial 0.
+        if self._frames == 0 and self._unparsed > 0:
+            return "error: receiving data but no valid frames (wrong sketch or baud?)"
+        return "ok"
 
     def read(self):
         with self._lock:
@@ -127,10 +149,10 @@ class ArduinoBMI160(Source):
         while not self._stop.is_set():
             try:
                 line = self._ser.readline()
+                self._ok = True  # the port is open and readable
                 if not line:
                     continue  # read timeout with nothing waiting; keep last value
                 self._ingest(line)
-                self._ok = True
             except Exception:
                 self._ok = False
                 self._reconnect()
@@ -148,13 +170,32 @@ class ArduinoBMI160(Source):
             pass  # keep retrying on the next loop iteration
 
     def _ingest(self, line: bytes):
-        parts = line.decode("ascii", "ignore").strip().split(",")
-        if len(parts) != 6:
+        text = line.decode("ascii", "ignore").strip()
+        parts = text.split(",")
+        ints = None
+        if len(parts) == 6:
+            try:
+                ints = tuple(int(x) for x in parts)
+            except ValueError:
+                ints = None
+        if ints is None:
+            # Not a data frame. A '#'-prefixed banner from the sketch is
+            # expected; anything else that keeps coming means the wrong sketch
+            # or baud. Warn once (only before we've ever seen a real frame) so
+            # the operator gets a pointer instead of a silent stream of zeros.
+            if text and not text.startswith("#"):
+                self._unparsed += 1
+                if (self._frames == 0 and self._unparsed >= 20
+                        and not self._warned_format):
+                    self._warned_format = True
+                    print(f"[bmi160] receiving data on {self._port_arg} but no "
+                          f"line parses as 'ax,ay,az,gx,gy,gz' (got e.g. {text!r}). "
+                          f"Wrong sketch, or baud != {self._baud}? Upload "
+                          "firmware/bmi160_nano/bmi160_nano.ino.")
             return  # a banner line or a torn frame; wait for the next one
-        try:
-            ax, ay, az, gx, gy, gz = (int(x) for x in parts)
-        except ValueError:
-            return
+        ax, ay, az, gx, gy, gz = ints
+        self._frames += 1
+        self._unparsed = 0
 
         # calibration: first ~90 frames establish gyro bias (Nano is assumed
         # stationary at startup, same convention as plugins/joycon_r.py)
