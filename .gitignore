@@ -2,3 +2,7 @@ __pycache__/
 *.pyc
 presets/*-copy.json
 .venv/
+
+# UI: node_modules is disposable, but ui/dist is committed on purpose so
+# `python run.py` works without a Node toolchain (see ui/README.md).
+ui/node_modules/

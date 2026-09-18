@@ -13,9 +13,10 @@ from pathlib import Path
 
 from engine.nodes import NODE_SPECS
 
-UI_DIR = Path(__file__).parent / "ui"
-STATIC = {"/": "index.html", "/index.html": "index.html",
-          "/app.js": "app.js", "/style.css": "style.css"}
+# The patch panel is a React + TypeScript app (ui/src) built by Vite. The build
+# output is committed, so serving it needs no Node toolchain at run time — see
+# ui/README.md. Rebuild with `cd ui && npm run build` after changing the UI.
+UI_DIST = Path(__file__).parent / "ui" / "dist"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -57,10 +58,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         p = self.path.split("?", 1)[0]
-        if p in STATIC:
-            return self._static(STATIC[p])
         if p == "/events":
             return self._events()
+        if not p.startswith("/api/"):
+            return self._static(p)
         if p == "/api/state":
             e = self.engine
             return self._json({
@@ -122,10 +123,18 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(404, b'{"error":"not found"}')
 
     # ---- static + SSE ----------------------------------------
-    def _static(self, name):
-        f = UI_DIR / name
-        if not f.is_file():
-            return self._send(404, b"missing")
+    def _static(self, path):
+        """Serve a file out of ui/dist. Vite fingerprints the asset names, so
+        the set of files isn't known ahead of time — resolve the request under
+        dist and refuse anything that escapes it."""
+        if not UI_DIST.is_dir():
+            return self._send(503, b"ui/dist is missing - run: cd ui && npm install && "
+                                   b"npm run build", "text/plain")
+        rel = path.lstrip("/") or "index.html"
+        root = UI_DIST.resolve()
+        f = (root / rel).resolve()
+        if not f.is_relative_to(root) or not f.is_file():
+            return self._send(404, b"not found", "text/plain")
         ctype = mimetypes.guess_type(str(f))[0] or "text/plain"
         self._send(200, f.read_bytes(), ctype)
 
