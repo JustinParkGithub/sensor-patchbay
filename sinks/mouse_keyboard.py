@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import time
 
+from engine.registry import register_sink
 from engine.signals import PortSpec, SCALAR, EVENT
 from sinks.base import Sink
 
@@ -33,10 +34,21 @@ _KEYNAMES = [
 ]
 
 
+@register_sink
 class MouseKeyboardSink(Sink):
+    type = "hid"
     id = "hid"
     label = "mouse + keyboard"
     accepts_any = True
+
+    @classmethod
+    def available(cls):
+        try:
+            import pynput  # noqa: F401
+        except Exception as e:
+            return False, f"needs pynput + a display ({e})"
+        return True
+
     PORTS = [
         PortSpec("mouse.dx", SCALAR, "mouse.dx", "mouse", "px/s"),
         PortSpec("mouse.dy", SCALAR, "mouse.dy", "mouse", "px/s"),

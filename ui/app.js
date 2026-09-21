@@ -1,5 +1,5 @@
 "use strict";
-/* joycon-patchbay — vanilla patch-panel client. Talks to the local engine over
+/* sensor-patchbay — vanilla patch-panel client. Talks to the local engine over
    fetch (REST) + EventSource (live state). No build step, no dependencies. */
 
 const $  = (s, r = document) => r.querySelector(s);
@@ -16,7 +16,8 @@ async function herr(r){ try { return new Error((await r.json()).error || r.statu
                         catch { return new Error(r.statusText); } }
 
 const S = {
-  modules: [], nodeSpecs: {}, graph: {name:'', connections:[]},
+  modules: [], nodeSpecs: {}, plugins: {sources:[], sinks:[]}, modRev: 0,
+  graph: {name:'', connections:[]},
   presets: [], presetName: '', panic: false, rate: 0,
   armed: null,                 // full source port id
   selected: null,              // connection id
@@ -30,12 +31,14 @@ init().catch(e => toast('startup: ' + e.message, true));
 async function init(){
   const st = await api.get('/api/state');
   S.modules = st.modules; S.nodeSpecs = st.nodes;
+  S.plugins = st.plugins || {sources:[], sinks:[]};
   S.presets = st.presets; S.presetName = st.preset; S.rate = st.rate;
   S.graph = await api.get('/api/graph');
 
   $('#nodeType').innerHTML = Object.keys(S.nodeSpecs)
     .map(t => `<option value="${t}">${t}</option>`).join('');
   renderModules();
+  renderAddBars();
   syncPresetBar();
   wireBar();
   wireInspector();
@@ -65,9 +68,13 @@ function moduleEl(m, kind){
   el.className = 'module ' + (kind === 'source' ? 'src-mod' : 'sink-mod');
   const head = document.createElement('div');
   head.className = 'mh';
-  head.innerHTML = `<span class="swatch"></span><span class="mname"></span><span class="mstatus"></span>`;
+  head.innerHTML = `<span class="swatch"></span><span class="mname"></span>` +
+                   `<span class="mstatus"></span><button class="mdrop" title="remove">✕</button>`;
   $('.mname', head).textContent = m.label;
   $('.mstatus', head).textContent = m.status;
+  const drop = $('.mdrop', head);
+  if (m.id === 'sys') drop.remove();               // the built-in sys sink is permanent
+  else drop.addEventListener('click', () => removeModule(kind, m.id));
   el.appendChild(head);
 
   let lastGroup = null;
@@ -102,6 +109,73 @@ function jackEl(m, p, kind){
   }
   return j;
 }
+
+/* ------------------------------------------------- add / remove modules */
+function renderAddBars(){
+  for (const bar of $$('.add-mod')){
+    const kind = bar.dataset.kind;
+    const list = (kind === 'source' ? S.plugins.sources : S.plugins.sinks) || [];
+    const sel = $('.addType', bar);
+    sel.innerHTML = list.map(p =>
+      `<option value="${p.type}" ${p.available ? '' : 'disabled'}>` +
+      `${p.label}${p.available ? '' : ' — unavailable'}</option>`).join('');
+    sel.onchange = () => renderAddArgs(bar);
+    $('.addBtn', bar).onclick = () => addModule(bar);
+    renderAddArgs(bar);
+  }
+}
+function pluginFor(kind, type){
+  return ((kind === 'source' ? S.plugins.sources : S.plugins.sinks) || [])
+    .find(p => p.type === type);
+}
+function renderAddArgs(bar){
+  const p = pluginFor(bar.dataset.kind, $('.addType', bar).value);
+  const box = $('.addArgs', bar); box.replaceChildren();
+  $('.addReason', bar).textContent = (p && !p.available) ? p.reason : '';
+  if (!p) return;
+  for (const a of p.args){
+    const lab = document.createElement('label');
+    lab.textContent = a.name;
+    const input = document.createElement('input');
+    input.dataset.arg = a.name;
+    input.type = (a.type === 'int' || a.type === 'float') ? 'number'
+               : (a.type === 'bool') ? 'checkbox' : 'text';
+    if (a.type === 'bool') input.checked = !!a.default;
+    else if (a.default != null) input.value = a.default;
+    if (a.help) lab.title = a.help;
+    lab.appendChild(input); box.appendChild(lab);
+  }
+}
+async function addModule(bar){
+  const kind = bar.dataset.kind, type = $('.addType', bar).value;
+  const p = pluginFor(kind, type);
+  if (!p || !p.available){ toast(p ? p.reason : 'pick a plugin', true); return; }
+  const args = {};
+  for (const input of $$('.addArgs input', bar)){
+    if (input.type === 'checkbox') args[input.dataset.arg] = input.checked;
+    else if (input.value !== '') args[input.dataset.arg] =
+      input.type === 'number' ? parseFloat(input.value) : input.value;
+  }
+  try {
+    const r = await api.post('/api/' + kind, { type, args });
+    S.modules = r.modules; await refreshGraph();
+    renderModules(); markCablesDirty();
+    toast(`added ${kind} "${r.id}"`);
+  } catch(e){ toast(e.message, true); }
+}
+async function removeModule(kind, id){
+  if (!confirm(`Remove ${kind} "${id}"? Cables using it are deleted.`)) return;
+  try {
+    const r = await api.post(`/api/${kind}/remove`, { id });
+    S.modules = r.modules; if (r.graph) S.graph = r.graph;
+    if (S.selected && !S.graph.connections.find(c => c.id === S.selected)){
+      S.selected = null; $('#inspector').hidden = true;
+    }
+    renderModules(); markWired(); markCablesDirty();
+    toast(`removed ${id}${r.dropped ? ` (−${r.dropped} cable${r.dropped>1?'s':''})` : ''}`);
+  } catch(e){ toast(e.message, true); }
+}
+async function refreshGraph(){ S.graph = await api.get('/api/graph'); }
 
 /* --------------------------------------------------------------- patching */
 function onJack(full, kind){
@@ -217,6 +291,7 @@ function openStream(){
     S.live.ports = s.ports; S.live.sinks = s.sinks; S.live.conns = s.connections;
     S.panic = s.panic; S.rate = s.rate;
     if (s.preset && s.preset !== S.presetName){ S.presetName = s.preset; onPresetChangedExternally(); }
+    if (s.mod_rev != null && s.mod_rev !== S.modRev){ S.modRev = s.mod_rev; onModulesChangedExternally(); }
     paintMeters(); paintStatus();
   };
 }
@@ -236,9 +311,10 @@ function paintMeters(){
   }
 }
 function paintStatus(){
-  $('#ratePill').textContent = `${Math.round(S.rate)} Hz`;
+  const ri = $('#rateInput');
+  if (ri && document.activeElement !== ri) ri.value = Math.round(S.rate);
   const src = S.modules.find(m => m.kind === 'source');
-  const snk = S.modules.find(m => m.kind === 'sink' && m.id === 'hid');
+  const snk = S.modules.find(m => m.kind === 'sink' && m.id !== 'sys');
   pill('#srcPill',  !src ? 'bad' : (src.status === 'mock' ? 'mock' : 'ok'),
        src ? src.label : 'no source');
   pill('#sinkPill', !snk ? 'bad' : (/dry|unavail/.test(snk.status) ? 'warn' : 'ok'),
@@ -373,13 +449,23 @@ function wireBar(){
     S.presets = r.presets; syncPresetBar(); toast(`deleted ${name}`);
   });
   $('#panicBtn').addEventListener('click', () => api.post('/api/panic', { on: !S.panic }));
+  const applyRate = async () => {
+    const hz = parseFloat($('#rateInput').value);
+    if (!(hz > 0)) return;
+    try { const r = await api.post('/api/rate', { rate: hz }); S.rate = r.rate;
+          toast(`rate → ${Math.round(r.rate)} Hz`); }
+    catch(e){ toast(e.message, true); }
+  };
+  $('#rateInput').addEventListener('change', applyRate);
+  $('#rateInput').addEventListener('keydown', e => { if (e.key === 'Enter') applyRate(); });
 }
 async function reloadAll(){
   const st = await api.get('/api/state');
   S.modules = st.modules; S.presets = st.presets; S.presetName = st.preset;
+  S.plugins = st.plugins || S.plugins;
   S.graph = await api.get('/api/graph');
   S.selected = null; S.armed = null; $('#inspector').hidden = true;
-  renderModules(); syncPresetBar();
+  renderModules(); renderAddBars(); syncPresetBar();
 }
 async function onPresetChangedExternally(){          // btn.home -> sys/preset.cycle
   S.graph = await api.get('/api/graph');
@@ -387,6 +473,12 @@ async function onPresetChangedExternally(){          // btn.home -> sys/preset.c
   S.modules = st.modules;
   renderModules(); syncPresetBar();
   toast(`preset → ${S.presetName}`);
+}
+async function onModulesChangedExternally(){         // add/remove from CLI or another tab
+  const st = await api.get('/api/state');
+  S.modules = st.modules; S.plugins = st.plugins || S.plugins;
+  await refreshGraph();
+  renderModules(); renderAddBars(); markWired(); markCablesDirty();
 }
 function syncPresetBar(){
   $('#presetSel').innerHTML = S.presets

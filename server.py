@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from engine.nodes import NODE_SPECS
+from engine.registry import SINKS, SOURCES, catalog
 
 UI_DIR = Path(__file__).parent / "ui"
 STATIC = {"/": "index.html", "/index.html": "index.html",
@@ -70,7 +71,10 @@ class Handler(BaseHTTPRequestHandler):
                 "rate": e.rate,
                 "modules": e.modules(),
                 "nodes": NODE_SPECS,
+                "plugins": self._plugins(),
             })
+        if p == "/api/plugins":
+            return self._json(self._plugins())
         if p == "/api/graph":
             return self._json(self.engine.graph_dict())
         if p == "/api/nodes":
@@ -101,9 +105,22 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(e.add_connection(b["source"], b["sink"], b.get("chain")))
         if p == "/api/disconnect":
             return self._json({"ok": e.remove_connection(b.get("id"))})
+        if p == "/api/source":
+            return self._add_module("source", b)
+        if p == "/api/sink":
+            return self._add_module("sink", b)
+        if p == "/api/source/remove":
+            return self._remove_module("source", b)
+        if p == "/api/sink/remove":
+            return self._remove_module("sink", b)
         if p == "/api/panic":
             e.set_panic(bool(b.get("on", True)))
             return self._json({"panic": e.panic})
+        if p == "/api/rate":
+            try:
+                return self._json({"ok": True, "rate": e.set_rate(b.get("rate"))})
+            except Exception as ex:
+                return self._json({"error": str(ex)}, 400)
         if p == "/api/preset/load":
             try:
                 return self._json({"ok": True, "graph": e.load_preset(b["name"])})
@@ -120,6 +137,34 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": e.delete_preset(b.get("name")),
                                "presets": e.list_presets()})
         return self._send(404, b'{"error":"not found"}')
+
+    # ---- plugins / modules -----------------------------------
+    @staticmethod
+    def _plugins():
+        return {"sources": catalog(SOURCES, "source"),
+                "sinks": catalog(SINKS, "sink")}
+
+    def _add_module(self, kind, b):
+        type_name = b.get("type")
+        if not type_name:
+            return self._json({"error": "need a plugin type"}, 400)
+        create = self.engine.create_source if kind == "source" else self.engine.create_sink
+        try:
+            iid = create(type_name, b.get("args") or {}, b.get("id") or None)
+        except Exception as ex:
+            return self._json({"error": f"{type_name}: {ex}"}, 400)
+        return self._json({"ok": True, "id": iid, "modules": self.engine.modules()})
+
+    def _remove_module(self, kind, b):
+        iid = b.get("id")
+        remove = self.engine.remove_source if kind == "source" else self.engine.remove_sink
+        try:
+            dropped = remove(iid)
+        except Exception as ex:
+            return self._json({"error": str(ex)}, 400)
+        return self._json({"ok": True, "dropped": dropped,
+                           "modules": self.engine.modules(),
+                           "graph": self.engine.graph_dict()})
 
     # ---- static + SSE ----------------------------------------
     def _static(self, name):

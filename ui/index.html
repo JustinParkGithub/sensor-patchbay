@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>joycon-patchbay</title>
+<title>sensor-patchbay</title>
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 <header id="bar">
-  <div class="brand"><span class="glyph">▚</span> joycon&#8202;·&#8202;patchbay</div>
+  <div class="brand"><span class="glyph">▚</span> sensor&#8202;·&#8202;patchbay</div>
 
   <div class="group presets">
     <select id="presetSel" title="preset"></select>
@@ -25,7 +25,9 @@
     <span class="pill" id="linkPill"><i></i> link</span>
     <span class="pill" id="srcPill"><i></i> source</span>
     <span class="pill" id="sinkPill"><i></i> sink</span>
-    <span class="rate" id="ratePill">&mdash; Hz</span>
+    <label class="rate-set" title="engine tick rate (Hz) — applied live">
+      <input id="rateInput" type="number" min="1" max="2000" step="10"> Hz
+    </label>
   </div>
 
   <button id="panicBtn" title="disable all outputs">PANIC</button>
@@ -33,8 +35,26 @@
 
 <main id="patch">
   <svg id="cables" xmlns="http://www.w3.org/2000/svg"></svg>
-  <section class="col" id="sources"><h2>Sources</h2><div class="modules" id="srcMods"></div></section>
-  <section class="col" id="sinks"><h2>Sinks</h2><div class="modules" id="sinkMods"></div></section>
+  <section class="col" id="sources">
+    <h2>Sources</h2>
+    <div class="modules" id="srcMods"></div>
+    <div class="add-mod" data-kind="source">
+      <select class="addType" title="source plugin"></select>
+      <div class="addArgs"></div>
+      <button class="addBtn">+ add source</button>
+      <div class="addReason"></div>
+    </div>
+  </section>
+  <section class="col" id="sinks">
+    <h2>Sinks</h2>
+    <div class="modules" id="sinkMods"></div>
+    <div class="add-mod" data-kind="sink">
+      <select class="addType" title="sink plugin"></select>
+      <div class="addArgs"></div>
+      <button class="addBtn">+ add sink</button>
+      <div class="addReason"></div>
+    </div>
+  </section>
 </main>
 
 <div id="hint">Click a <b>source</b> jack, then a <b>sink</b> jack, to patch. Click a cable to shape it.</div>

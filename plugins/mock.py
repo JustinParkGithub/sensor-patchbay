@@ -1,8 +1,10 @@
 """Synthetic 'Joy-Con' source: same ports as the real one, driven by slow
 oscillators so you can build and test patches with no hardware.
 
-Registered under the same instance id (``joycon``) as the real plugin, so a
-preset built here works unchanged once a real Joy-Con is paired.
+A distinct plugin *type* (``mock``) from the real Joy-Con (``joycon``), but it
+borrows the real device's default bus *id* (``joycon``) so a preset built here
+runs unchanged once a real Joy-Con is paired. It needs no third-party packages,
+so it is always available — the guaranteed fallback when no hardware is present.
 """
 
 from __future__ import annotations
@@ -10,11 +12,14 @@ from __future__ import annotations
 import math
 import time
 
+from engine.registry import register_source
 from plugins.base import Source
 from plugins.joycon_r import JOYCON_PORTS
 
 
+@register_source
 class MockJoyCon(Source):
+    type = "mock"
     id = "joycon"
     label = "Joy-Con (R) · mock"
     PORTS = JOYCON_PORTS
