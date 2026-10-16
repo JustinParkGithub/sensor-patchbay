@@ -27,7 +27,7 @@ import {
 } from '../lib/ports'
 import type { PortEntry } from '../lib/ports'
 import { EMPTY_GRAPH } from '../types'
-import type { ChainNode, Connection, Graph, ModuleSpec, NodeSpecs } from '../types'
+import type { ChainNode, Connection, Graph, ModuleSpec, NodeSpecs, VisionState } from '../types'
 import { useLiveStatus } from './LiveProvider'
 import { useToastHandlers } from './ToastProvider'
 
@@ -39,6 +39,7 @@ interface PatchbayValue {
   presets: string[]
   presetName: string
   graph: Graph
+  vision: VisionState
 
   portIndex: Map<string, PortEntry>
   wired: Set<string>
@@ -69,6 +70,7 @@ export function PatchbayProvider({ children }: { children: ReactNode }) {
   const [presets, setPresets] = useState<string[]>([])
   const [presetName, setPresetName] = useState('')
   const [graph, setGraph] = useState<Graph>(EMPTY_GRAPH)
+  const [vision, setVision] = useState<VisionState>({ available: false, on: false })
   const [armed, setArmed] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
@@ -89,6 +91,7 @@ export function PatchbayProvider({ children }: { children: ReactNode }) {
     setModules(state.modules)
     setPresets(state.presets)
     setPresetName(state.preset)
+    setVision(state.vision)
     setGraph(nextGraph)
     setSelectedId(null)
     setArmed(null)
@@ -105,6 +108,7 @@ export function PatchbayProvider({ children }: { children: ReactNode }) {
         setNodeSpecs(state.nodes)
         setPresets(state.presets)
         setPresetName(state.preset)
+        setVision(state.vision)
         setGraph(nextGraph)
         setReady(true)
       } catch (e) {
@@ -128,6 +132,7 @@ export function PatchbayProvider({ children }: { children: ReactNode }) {
         setModules(state.modules)
         setPresets(state.presets)
         setPresetName(state.preset)
+        setVision(state.vision)
         setGraph(nextGraph)
         toast(`preset → ${state.preset}`)
       } catch (e) {
@@ -215,6 +220,7 @@ export function PatchbayProvider({ children }: { children: ReactNode }) {
       presets,
       presetName,
       graph,
+      vision,
       portIndex,
       wired,
       armed,
@@ -235,6 +241,7 @@ export function PatchbayProvider({ children }: { children: ReactNode }) {
       presets,
       presetName,
       graph,
+      vision,
       portIndex,
       wired,
       armed,

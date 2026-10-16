@@ -64,6 +64,13 @@ export function isChoiceSpec(spec: ParamSpec): spec is ChoiceParamSpec {
   return !Array.isArray(spec)
 }
 
+/** The camera hand/gesture tracker the vision button starts and stops. */
+export interface VisionState {
+  /** False when opencv / mediapipe aren't installed. */
+  available: boolean
+  on: boolean
+}
+
 /** `GET /api/state` — everything that only changes when the graph is reloaded. */
 export interface EngineState {
   preset: string
@@ -72,6 +79,7 @@ export interface EngineState {
   rate: number
   modules: ModuleSpec[]
   nodes: NodeSpecs
+  vision: VisionState
 }
 
 export interface ConnectionActivity {

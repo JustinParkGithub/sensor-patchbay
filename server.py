@@ -12,6 +12,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from engine.nodes import NODE_SPECS
+from engine.registry import SOURCES
+
+# Source id of the camera hand/gesture tracker (plugins/cv_hands.py) that the
+# UI's vision button starts and stops.
+VISION_ID = "cv"
 
 # The patch panel is a React + TypeScript app (ui/src) built by Vite. The build
 # output is committed, so serving it needs no Node toolchain at run time — see
@@ -71,6 +76,7 @@ class Handler(BaseHTTPRequestHandler):
                 "rate": e.rate,
                 "modules": e.modules(),
                 "nodes": NODE_SPECS,
+                "vision": self._vision_state(),
             })
         if p == "/api/graph":
             return self._json(self.engine.graph_dict())
@@ -120,7 +126,28 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/preset/delete":
             return self._json({"ok": e.delete_preset(b.get("name")),
                                "presets": e.list_presets()})
+        if p == "/api/vision":
+            return self._set_vision(bool(b.get("on", True)))
         return self._send(404, b'{"error":"not found"}')
+
+    # ---- computer vision ----------------------------------------
+    def _vision_state(self):
+        return {"available": VISION_ID in SOURCES,
+                "on": VISION_ID in self.engine.sources}
+
+    def _set_vision(self, on):
+        e = self.engine
+        try:
+            if on and VISION_ID not in e.sources:
+                if VISION_ID not in SOURCES:
+                    raise RuntimeError("computer vision unavailable — "
+                                       "pip install opencv-python mediapipe")
+                e.add_source(SOURCES[VISION_ID]())
+            elif not on:
+                e.remove_source(VISION_ID)
+        except Exception as ex:
+            return self._json({"error": str(ex)}, 400)
+        return self._json(self._vision_state())
 
     # ---- static + SSE ----------------------------------------
     def _static(self, path):

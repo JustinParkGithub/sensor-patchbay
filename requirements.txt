@@ -5,6 +5,8 @@ pynput>=1.7.6          # virtual mouse + keyboard (Linux/uinput+X11, macOS, Wind
 joycon-python>=0.2.4   # imported as `pyjoycon`; talks to a paired Joy-Con over HID
 hidapi>=0.14.0         # backend for joycon-python
 pyserial>=3.5          # plugins/arduino_bmi160.py talks to the Nano over USB serial
+opencv-python          # plugins/cv_hands.py: webcam capture (UI vision button)
+mediapipe              # plugins/cv_hands.py: hand landmarks + gesture recognition
 
 # joycon-python pulls pyglm on some versions for its quaternion helper. If
 # `pip install joycon-python` complains, add:  pyglm>=2.7

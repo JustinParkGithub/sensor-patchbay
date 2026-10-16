@@ -99,7 +99,7 @@ class EngineLoop:
             prev = now
 
             src_vals: dict[str, float] = {}
-            for sid, src in self.sources.items():
+            for sid, src in list(self.sources.items()):
                 try:
                     for k, v in src.read().items():
                         src_vals[f"{sid}/{k}"] = float(v)
@@ -152,6 +152,25 @@ class EngineLoop:
         for sink in self.sinks.values():
             mods.append(sink.module().to_dict())
         return mods
+
+    def add_source(self, src):
+        """Start a source and put it on the bus while the engine is running.
+        ``self.sources`` is replaced, not mutated, so the loop never sees it
+        change mid-iteration."""
+        with self._lock:
+            if src.id in self.sources:
+                raise ValueError(f"source {src.id!r} is already running")
+            src.start()
+            self.sources = {**self.sources, src.id: src}
+
+    def remove_source(self, sid: str) -> bool:
+        with self._lock:
+            src = self.sources.get(sid)
+            if src is None:
+                return False
+            self.sources = {k: v for k, v in self.sources.items() if k != sid}
+        src.stop()
+        return True
 
     def set_panic(self, on: bool):
         with self._lock:

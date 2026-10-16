@@ -1,6 +1,7 @@
 import { PanicButton } from './PanicButton'
 import { PresetBar } from './PresetBar'
 import { StatusBar } from './StatusBar'
+import { VisionButton } from './VisionButton'
 
 export function TopBar() {
   return (
@@ -11,6 +12,7 @@ export function TopBar() {
       <PresetBar />
       <div className="spacer" />
       <StatusBar />
+      <VisionButton />
       <PanicButton />
     </header>
   )
