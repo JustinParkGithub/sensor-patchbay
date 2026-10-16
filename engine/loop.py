@@ -1,5 +1,14 @@
 """Fixed-rate engine loop. Owns the sources, the sinks and the live graph, and is
 the single writer of the state snapshot the web UI reads over SSE.
+
+Portability note
+----------------
+The whole tick is one method, :meth:`EngineLoop.step`, that takes ``dt`` and does
+one pass (read sources → route → drive sinks → snapshot). :meth:`start` runs it on
+a background thread for the PC build; a microcontroller port drops the thread and
+calls ``engine.step(dt)`` straight from its own ``while True`` loop instead —
+nothing in ``step`` requires threads. Everything ``step`` touches (the graph, the
+nodes, the registry) is pure standard library.
 """
 
 from __future__ import annotations
@@ -10,6 +19,7 @@ import time
 import traceback
 from pathlib import Path
 
+from . import registry
 from .graph import Graph
 from .signals import ModuleSpec, PortSpec, EVENT
 
@@ -18,6 +28,7 @@ class SysSink:
     """Built-in sink. Currently one port: ``preset.cycle`` — a rising edge asks the
     loop to load the next preset. Lets you map ``joycon/btn.home -> sys/preset.cycle``.
     """
+    type = "sys"
     id = "sys"
 
     def __init__(self):
@@ -53,6 +64,10 @@ class EngineLoop:
         self.sys = SysSink()
         self.sinks = dict(sinks)              # id -> Sink
         self.sinks[self.sys.id] = self.sys
+        # An instance's bus namespace is its dict key here; keep .id in sync so
+        # module()/read()/the UI all agree, even for a suffixed second instance.
+        for iid, inst in {**self.sources, **self.sinks}.items():
+            inst.id = iid
         self.graph = graph
         self.preset_dir = Path(preset_dir)
         self.preset_dir.mkdir(parents=True, exist_ok=True)
@@ -63,8 +78,10 @@ class EngineLoop:
         self._lock = threading.RLock()
         self._thread = None
         self._stop = threading.Event()
+        self._mod_rev = 0                     # bumped whenever a module is added/removed
         self._snap = {"t": 0.0, "ports": {}, "sinks": {}, "connections": {},
-                      "panic": False, "preset": self.current_preset, "rate": rate}
+                      "panic": False, "preset": self.current_preset, "rate": rate,
+                      "mod_rev": 0}
 
     # ---- lifecycle -------------------------------------------------
     def start(self):
@@ -90,87 +107,87 @@ class EngineLoop:
 
     # ---- main loop ------------------------------------------------
     def _run(self):
-        period = 1.0 / self.rate
         t0 = time.perf_counter()
         prev = t0
         while not self._stop.is_set():
             now = time.perf_counter()
             dt = now - prev
             prev = now
-
-            src_vals: dict[str, float] = {}
-            for sid, src in list(self.sources.items()):
-                try:
-                    for k, v in src.read().items():
-                        src_vals[f"{sid}/{k}"] = float(v)
-                except Exception:
-                    pass
-
-            with self._lock:
-                graph = self.graph
-                panic = self.panic
-            sink_vals = graph.tick(src_vals, dt)
-
-            by_sink: dict[str, dict] = {}
-            for full, val in sink_vals.items():
-                sid, _, port = full.partition("/")
-                by_sink.setdefault(sid, {})[port] = val
-
-            for sid, sink in self.sinks.items():
-                payload = {} if panic else by_sink.get(sid, {})
-                try:
-                    sink.apply(payload, dt)
-                except Exception:
-                    traceback.print_exc()
-
-            if self.sys.pending:
-                self.sys.pending = False
-                self._cycle_preset()
-
-            self._snap = {
-                "t": now - t0,
-                "ports": {k: round(v, 5) for k, v in src_vals.items()},
-                "sinks": {k: round(v, 5) for k, v in sink_vals.items()},
-                "connections": graph.activity_map(),
-                "panic": panic,
-                "preset": self.current_preset,
-                "rate": self.rate,
-            }
-
+            self.step(dt, clock=now - t0)
+            # read the rate each tick so set_rate() takes effect live
+            period = 1.0 / self.rate if self.rate > 0 else 0.0
             slack = period - (time.perf_counter() - now)
             if slack > 0:
                 time.sleep(slack)
+
+    def step(self, dt: float, clock: float | None = None):
+        """One engine tick: read every source, route through the graph, drive every
+        sink, refresh the snapshot. Safe to call from any loop (thread or bare
+        microcontroller ``while``); it takes its own consistent view of the
+        sources/sinks/graph under the lock so a concurrent add/remove is safe.
+        """
+        with self._lock:
+            sources = list(self.sources.items())
+            sinks = list(self.sinks.items())
+            graph = self.graph
+            panic = self.panic
+
+        src_vals: dict[str, float] = {}
+        for sid, src in sources:
+            try:
+                for k, v in src.read().items():
+                    src_vals[f"{sid}/{k}"] = float(v)
+            except Exception:
+                pass
+
+        sink_vals = graph.tick(src_vals, dt)
+
+        by_sink: dict[str, dict] = {}
+        for full, val in sink_vals.items():
+            sid, _, port = full.partition("/")
+            by_sink.setdefault(sid, {})[port] = val
+
+        for sid, sink in sinks:
+            payload = {} if panic else by_sink.get(sid, {})
+            try:
+                sink.apply(payload, dt)
+            except Exception:
+                traceback.print_exc()
+
+        if self.sys.pending:
+            self.sys.pending = False
+            self._cycle_preset()
+
+        self._snap = {
+            "t": self._snap["t"] + dt if clock is None else clock,
+            "ports": {k: round(v, 5) for k, v in src_vals.items()},
+            "sinks": {k: round(v, 5) for k, v in sink_vals.items()},
+            "connections": graph.activity_map(),
+            "panic": panic,
+            "preset": self.current_preset,
+            "rate": self.rate,
+            "mod_rev": self._mod_rev,
+        }
 
     # ---- state for the server -----------------------------------
     def snapshot(self):
         return self._snap
 
     def modules(self):
-        mods = []
-        for src in self.sources.values():
-            mods.append(src.module().to_dict())
-        for sink in self.sinks.values():
-            mods.append(sink.module().to_dict())
-        return mods
-
-    def add_source(self, src):
-        """Start a source and put it on the bus while the engine is running.
-        ``self.sources`` is replaced, not mutated, so the loop never sees it
-        change mid-iteration."""
+        # snapshot under the lock: a concurrent add/remove from another request
+        # thread would otherwise change the dicts mid-iteration
         with self._lock:
-            if src.id in self.sources:
-                raise ValueError(f"source {src.id!r} is already running")
-            src.start()
-            self.sources = {**self.sources, src.id: src}
+            modules = [*self.sources.values(), *self.sinks.values()]
+        return [m.module().to_dict() for m in modules]
 
-    def remove_source(self, sid: str) -> bool:
+    def set_rate(self, hz: float) -> float:
+        """Change the engine tick rate live (Hz). The run loop reads it each tick."""
+        hz = float(hz)
+        if hz <= 0 or hz > 2000:
+            raise ValueError("rate must be between 1 and 2000 Hz")
         with self._lock:
-            src = self.sources.get(sid)
-            if src is None:
-                return False
-            self.sources = {k: v for k, v in self.sources.items() if k != sid}
-        src.stop()
-        return True
+            self.rate = hz
+        return self.rate
 
     def set_panic(self, on: bool):
         with self._lock:
@@ -182,6 +199,88 @@ class EngineLoop:
                         sink.release_all()
                     except Exception:
                         pass
+
+    # ---- runtime module management ------------------------------
+    def _unique_id(self, base: str, taken: dict) -> str:
+        if base not in taken:
+            return base
+        i = 2
+        while f"{base}-{i}" in taken:
+            i += 1
+        return f"{base}-{i}"
+
+    def add_source(self, instance_id: str, src, start: bool = True) -> str:
+        with self._lock:
+            iid = self._unique_id(instance_id, self.sources)
+            src.id = iid
+            if start:
+                src.start()
+            self.sources[iid] = src
+            self._mod_rev += 1
+        return iid
+
+    def add_sink(self, instance_id: str, sink, start: bool = True) -> str:
+        with self._lock:
+            iid = self._unique_id(instance_id, self.sinks)
+            sink.id = iid
+            if start:
+                sink.start()
+            self.sinks[iid] = sink
+            self._mod_rev += 1
+        return iid
+
+    def create_source(self, type_name: str, kwargs: dict | None = None,
+                       instance_id: str | None = None) -> str:
+        """Instantiate a registered source type and add it live. Returns its id."""
+        iid, inst = registry.build(registry.SOURCES, type_name, kwargs, instance_id)
+        return self.add_source(iid, inst)
+
+    def create_sink(self, type_name: str, kwargs: dict | None = None,
+                    instance_id: str | None = None) -> str:
+        iid, inst = registry.build(registry.SINKS, type_name, kwargs, instance_id)
+        return self.add_sink(iid, inst)
+
+    def remove_source(self, instance_id: str) -> int:
+        """Remove a source instance and prune connections that referenced it.
+        Returns the number of connections dropped."""
+        with self._lock:
+            src = self.sources.pop(instance_id, None)
+            if src is None:
+                raise KeyError(f"no source instance {instance_id!r}")
+            dropped = self._prune_connections(namespace=instance_id, side="source")
+            self._mod_rev += 1
+        self._safe_stop(src)
+        return dropped
+
+    def remove_sink(self, instance_id: str) -> int:
+        if instance_id == self.sys.id:
+            raise ValueError("the built-in 'sys' sink cannot be removed")
+        with self._lock:
+            sink = self.sinks.pop(instance_id, None)
+            if sink is None:
+                raise KeyError(f"no sink instance {instance_id!r}")
+            dropped = self._prune_connections(namespace=instance_id, side="sink")
+            self._mod_rev += 1
+        self._safe_stop(sink)
+        return dropped
+
+    def _prune_connections(self, namespace: str, side: str) -> int:
+        prefix = namespace + "/"
+        before = len(self.graph.connections)
+        self.graph.connections = [
+            c for c in self.graph.connections
+            if not getattr(c, side).startswith(prefix)
+        ]
+        return before - len(self.graph.connections)
+
+    @staticmethod
+    def _safe_stop(module):
+        try:
+            if hasattr(module, "release_all"):
+                module.release_all()
+            module.stop()
+        except Exception:
+            pass
 
     # ---- graph editing ----------------------------------------
     def graph_dict(self):

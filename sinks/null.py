@@ -1,16 +1,29 @@
 """Headless sink: no OS input, just a throttled log of what it *would* do. Use it
-over SSH, in CI, or with ``--dry-run``. Registers as ``hid`` so presets built for
-the real mouse/keyboard sink load unchanged."""
+over SSH, in CI, on a headless Pi, or with ``--dry-run``.
+
+A distinct plugin *type* (``dryrun``) from the real HID sink (``hid``), but it
+borrows the real sink's default bus *id* (``hid``) so presets built for the real
+mouse/keyboard load unchanged. Needs nothing beyond the standard library, so it
+is always available — the guaranteed fallback when ``pynput`` or a display is
+missing."""
 
 from __future__ import annotations
 
 import time
 
+from engine.registry import register_sink
 from sinks.mouse_keyboard import MouseKeyboardSink
 
 
+@register_sink
 class NullSink(MouseKeyboardSink):
+    type = "dryrun"
+    id = "hid"
     label = "mouse + keyboard · dry-run"
+
+    @classmethod
+    def available(cls):
+        return True
 
     def __init__(self):
         super().__init__()

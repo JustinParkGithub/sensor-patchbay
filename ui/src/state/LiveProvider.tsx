@@ -9,7 +9,7 @@
  *     and cables read it from a ref or a subscription and write the DOM
  *     themselves (see `useMeters`, `Cables`).
  *   - `status` — the handful of fields that drive real UI structure (link,
- *     panic, rounded rate, preset). This *is* React state, but it only changes
+ *     panic, rounded rate, preset, module revision). This *is* React state, but it only changes
  *     identity when one of those fields actually changes, so re-renders are rare.
  */
 
@@ -27,6 +27,8 @@ export interface LiveStatus {
   rate: number | null
   /** Preset the engine believes is loaded — it can change without us asking. */
   preset: string
+  /** Module-set revision; a change means another client added/removed a module. */
+  modRev: number
 }
 
 type Subscriber = (snapshot: Snapshot) => void
@@ -38,7 +40,7 @@ interface LiveValue {
   status: LiveStatus
 }
 
-const INITIAL_STATUS: LiveStatus = { link: 'bad', panic: false, rate: null, preset: '' }
+const INITIAL_STATUS: LiveStatus = { link: 'bad', panic: false, rate: null, preset: '', modRev: 0 }
 
 const LiveContext = createContext<LiveValue | null>(null)
 
@@ -65,10 +67,14 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       for (const fn of subscribers.current) fn(frame)
 
       const rate = Math.round(frame.rate)
+      const modRev = frame.mod_rev ?? 0
       setStatus((prev) =>
-        prev.panic === frame.panic && prev.rate === rate && prev.preset === frame.preset
+        prev.panic === frame.panic &&
+        prev.rate === rate &&
+        prev.preset === frame.preset &&
+        prev.modRev === modRev
           ? prev
-          : { link: prev.link, panic: frame.panic, rate, preset: frame.preset },
+          : { link: prev.link, panic: frame.panic, rate, preset: frame.preset, modRev },
       )
     }
 

@@ -64,11 +64,29 @@ export function isChoiceSpec(spec: ParamSpec): spec is ChoiceParamSpec {
   return !Array.isArray(spec)
 }
 
-/** The camera hand/gesture tracker the vision button starts and stops. */
-export interface VisionState {
-  /** False when opencv / mediapipe aren't installed. */
+/** One constructor arg of a plugin, from its `ARGS` (see `engine/registry.py`). */
+export interface PluginArg {
+  name: string
+  default: string | number | boolean | null
+  type: 'int' | 'float' | 'str' | 'bool'
+  help: string
+}
+
+/** One registered plugin type — an entry in the add-source / add-sink picker. */
+export interface PluginInfo {
+  type: string
+  label: string
+  kind: ModuleKind
+  default_id: string
+  /** False when an optional dependency is missing; `reason` says which. */
   available: boolean
-  on: boolean
+  reason: string
+  args: PluginArg[]
+}
+
+export interface PluginCatalog {
+  sources: PluginInfo[]
+  sinks: PluginInfo[]
 }
 
 /** `GET /api/state` — everything that only changes when the graph is reloaded. */
@@ -79,7 +97,7 @@ export interface EngineState {
   rate: number
   modules: ModuleSpec[]
   nodes: NodeSpecs
-  vision: VisionState
+  plugins: PluginCatalog
 }
 
 export interface ConnectionActivity {
@@ -96,6 +114,8 @@ export interface Snapshot {
   panic: boolean
   preset: string
   rate: number
+  /** Bumped whenever a module is added or removed, from any client. */
+  mod_rev: number
 }
 
 export const EMPTY_SNAPSHOT: Snapshot = {
@@ -106,6 +126,8 @@ export const EMPTY_SNAPSHOT: Snapshot = {
   panic: false,
   preset: '',
   rate: 0,
+  mod_rev: 0,
 }
 
 export const EMPTY_GRAPH: Graph = { name: '', connections: [] }
+export const EMPTY_CATALOG: PluginCatalog = { sources: [], sinks: [] }

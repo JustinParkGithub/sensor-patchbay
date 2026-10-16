@@ -3,7 +3,7 @@
  * endpoint, so callers never hand-write a path or a request body.
  */
 
-import type { ChainNode, Connection, EngineState, Graph, VisionState } from '../types'
+import type { ChainNode, Connection, EngineState, Graph, ModuleKind, ModuleSpec } from '../types'
 
 export class ApiError extends Error {
   readonly status: number
@@ -53,7 +53,19 @@ export const api = {
     request<Connection>('PUT', '/api/connection', patch),
 
   setPanic: (on: boolean) => request<{ panic: boolean }>('POST', '/api/panic', { on }),
-  setVision: (on: boolean) => request<VisionState>('POST', '/api/vision', { on }),
+  setRate: (rate: number) => request<{ ok: boolean; rate: number }>('POST', '/api/rate', { rate }),
+
+  addModule: (kind: ModuleKind, type: string, args: Record<string, unknown>) =>
+    request<{ ok: boolean; id: string; modules: ModuleSpec[] }>('POST', `/api/${kind}`, {
+      type,
+      args,
+    }),
+  removeModule: (kind: ModuleKind, id: string) =>
+    request<{ ok: boolean; dropped: number; modules: ModuleSpec[]; graph: Graph }>(
+      'POST',
+      `/api/${kind}/remove`,
+      { id },
+    ),
 
   loadPreset: (name: string) =>
     request<{ ok: boolean; graph: Graph }>('POST', '/api/preset/load', { name }),

@@ -15,6 +15,7 @@ import math
 import threading
 import time
 
+from engine.registry import register_source
 from engine.signals import PortSpec, SCALAR, EVENT
 from plugins.base import Source
 
@@ -40,10 +41,20 @@ GYRO_DPS_PER_LSB = 0.06103
 STICK_HALF_RANGE = 1400.0
 
 
+@register_source
 class JoyConR(Source):
+    type = "joycon"
     id = "joycon"
     label = "Joy-Con (R)"
     PORTS = JOYCON_PORTS
+
+    @classmethod
+    def available(cls):
+        try:
+            import pyjoycon  # noqa: F401
+        except Exception as e:
+            return False, f"needs joycon-python/hidapi ({e})"
+        return True
 
     def __init__(self):
         from pyjoycon import JoyCon, get_R_id  # raises ImportError if not installed

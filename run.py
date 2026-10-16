@@ -1,17 +1,28 @@
 #!/usr/bin/env python3
-"""joycon-patchbay entrypoint.
+"""sensor-patchbay entrypoint.
 
-    python run.py                 # real Joy-Con if paired, else mock; opens UI
-    python run.py --mock          # force the synthetic source
-    python run.py --dry-run       # don't touch the real mouse/keyboard, just log
-    python run.py --robot         # also fan out to the generic UDP/JSON robot sink
-    python run.py --preset keyboard
+The engine starts with *no* sources or sinks by default — you add them live from
+the web UI (or the ``--cli`` console), which is the whole point: swap hardware in
+and out without ever stopping the process. The flags below just pre-load modules
+so a headless board can come up ready; nothing here can't also be done live.
+
+    python run.py                 # start empty; add sources/sinks live from the UI
+    python run.py --source mock   # pre-load the synthetic source (no hardware)
+    python run.py --sink dryrun   # pre-load a logging-only mouse/keyboard sink
+    python run.py --sink hid      # pre-load the real mouse + keyboard sink
+    python run.py --preset mouse  # load a routing preset on start
     python run.py --list-ports
-    python run.py --selftest      # headless: tick mock->null for 2s and exit
-    python run.py --source bmi160:port=/dev/ttyUSB0     # add a registered plugin source
-    python run.py --sink robot:host=192.168.1.5,port=9870
-    python run.py --list-sources  # what's pluggable, and its constructor args
+    python run.py --selftest      # headless: tick mock->dry-run for 2s and exit
+
+    python run.py --source bmi160:port=/dev/ttyUSB0    # pre-load a plugin source
+    python run.py --sink hid --source mock             # both, at once
+    python run.py --list-sources  # what's pluggable (the dropdown choices) + its args
     python run.py --list-sinks
+
+    python run.py --cli           # web UI + an interactive console for reconfiguring live
+    python run.py --no-ui --cli   # console only, no web server (headless board)
+    python run.py --no-ui         # run the engine as an appliance (no UI, no console)
+    python run.py --ext ~/my-plugins   # also load extensions from a directory
 
 Then open http://127.0.0.1:8420 in a browser on the same machine.
 """
@@ -20,82 +31,39 @@ from __future__ import annotations
 
 import argparse
 import sys
+import threading
 import time
 from pathlib import Path
 
 from engine.graph import Graph
 from engine.loop import EngineLoop
-from engine.registry import SINKS, SOURCES, describe, discover, instantiate
+from engine.registry import (SINKS, SOURCES, build, describe,
+                             build_spec, discover)
 
 HERE = Path(__file__).parent
 PRESETS = HERE / "presets"
 
 
-def build_source(force_mock: bool):
-    if force_mock:
-        from plugins.mock import MockJoyCon
-        print("[joycon] using mock source (--mock)")
-        return MockJoyCon()
-    try:
-        from plugins.joycon_r import JoyConR
-        src = JoyConR()
-        print("[joycon] connected")
-        return src
-    except Exception as e:
-        # No real Joy-Con and mock wasn't requested: skip the Joy-Con source
-        # entirely rather than silently substituting synthetic data. Any other
-        # --source plugins still load.
-        print(f"[joycon] not connected ({e}); no Joy-Con source "
-              "(pass --mock for the synthetic source)")
-        return None
-
-
-def build_sinks(args):
-    sinks = {}
-    if args.dry_run:
-        from sinks.null import NullSink
-        sinks["hid"] = NullSink()
-        print("[hid] dry-run (no real input events)")
-    else:
-        from sinks.mouse_keyboard import MouseKeyboardSink
-        sink = MouseKeyboardSink()
-        try:
-            sink.start()
-            sinks["hid"] = sink
-            print("[hid] mouse + keyboard ready")
-        except Exception as e:
-            from sinks.null import NullSink
-            sinks["hid"] = NullSink()
-            print(f"[hid] pynput unavailable ({e}); using dry-run sink")
-    if args.robot:
-        from sinks.generic_out import GenericOutSink
-        sinks["robot"] = GenericOutSink(host=args.robot_host, port=args.robot_port,
-                                        echo=args.robot_echo)
-        print(f"[robot] generic UDP/JSON out -> {args.robot_host}:{args.robot_port}")
-    return sinks
-
-
 def build_extra(registry: dict, specs: list, kind: str) -> dict:
-    """Instantiate every ``NAME[:k=v,...]`` spec against a plugin registry.
+    """Instantiate every ``TYPE[:k=v,...]`` spec against a plugin registry.
 
-    Shared by --source and --sink: anything beyond the built-in joycon/mock
-    and hid/null/robot slots goes through here, keyed by the resulting
-    instance's own ``.id`` (same convention build_source/build_sinks use).
-    A spec that fails to build (bad arg, hardware not found, ...) is logged
-    and skipped rather than aborting the whole run.
+    Shared by --source and --sink: every pre-loaded module goes through here,
+    keyed by the resulting instance's own id. A spec that fails to build (bad
+    arg, hardware not found, ...) is logged and skipped rather than aborting the
+    whole run — you can still add a working module from the UI afterwards.
     """
     out = {}
     for spec in specs:
         try:
-            inst = instantiate(registry, spec)
+            iid, inst = build_spec(registry, spec)
         except Exception as e:
             print(f"[{kind}] failed to build '{spec}': {e}")
             continue
-        if inst.id in out:
-            print(f"[{kind}] '{inst.id}' already added; skipping duplicate '{spec}'")
+        if iid in out:
+            print(f"[{kind}] '{iid}' already added; skipping duplicate '{spec}'")
             continue
-        out[inst.id] = inst
-        print(f"[{kind}] {inst.id} ready ({spec})")
+        out[iid] = inst
+        print(f"[{kind}] {iid} ready ({spec})")
     return out
 
 
@@ -112,10 +80,9 @@ def load_graph(name: str) -> Graph:
 
 
 def selftest():
-    from plugins.mock import MockJoyCon
-    from sinks.null import NullSink
-    eng = EngineLoop({"joycon": MockJoyCon()}, {"hid": NullSink()},
-                     load_graph("mouse"), PRESETS, rate=120)
+    _, mock = build(SOURCES, "mock")
+    _, null = build(SINKS, "dryrun")
+    eng = EngineLoop({"joycon": mock}, {"hid": null}, load_graph("mouse"), PRESETS, rate=120)
     eng.start()
     time.sleep(2.0)
     snap = eng.snapshot()
@@ -127,13 +94,12 @@ def selftest():
           f"{len(snap['connections'])} connections, preset={snap['preset']})")
 
 
-def list_ports(force_mock):
-    src = build_source(force_mock)
-    from sinks.mouse_keyboard import MouseKeyboardSink
-    from sinks.generic_out import GenericOutSink
-    modules = [src.module()] if src is not None else []
-    modules += [MouseKeyboardSink().module(), GenericOutSink().module()]
-    for m in modules:
+def list_ports():
+    """Print the ports of the always-available stand-ins (mock source, dry-run
+    sink) so you can see the bus namespace presets are written against."""
+    _, src = build(SOURCES, "mock")
+    _, hid = build(SINKS, "dryrun")
+    for m in (src.module(), hid.module()):
         print(f"\n{m.kind.upper()}  {m.id}  ({m.label}) [{m.status}]")
         for p in m.ports:
             pd = p if isinstance(p, dict) else p.to_dict()
@@ -147,25 +113,29 @@ def main():
     ap.add_argument("--port", type=int, default=8420)
     ap.add_argument("--rate", type=float, default=120.0)
     ap.add_argument("--preset", default="mouse")
-    ap.add_argument("--mock", action="store_true", help="force synthetic source")
-    ap.add_argument("--dry-run", action="store_true", help="log instead of moving the real cursor")
-    ap.add_argument("--robot", action="store_true", help="also enable the generic UDP/JSON sink")
-    ap.add_argument("--robot-host", default="127.0.0.1")
-    ap.add_argument("--robot-port", type=int, default=9870)
-    ap.add_argument("--robot-echo", action="store_true")
+    ap.add_argument("--mock", action="store_true",
+                    help="pre-load the synthetic source (shorthand for --source mock)")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="pre-load a logging-only sink (shorthand for --sink dryrun)")
     ap.add_argument("--list-ports", action="store_true", help="print every source/sink port and exit")
-    ap.add_argument("--source", action="append", default=[], metavar="NAME[:k=v,...]",
-                    help="add a source from the plugin registry (repeatable); see --list-sources")
-    ap.add_argument("--sink", action="append", default=[], metavar="NAME[:k=v,...]",
-                    help="add a sink from the plugin registry (repeatable); see --list-sinks")
+    ap.add_argument("--source", action="append", default=[], metavar="TYPE[:k=v,...]",
+                    help="pre-load a source from the plugin registry (repeatable); see --list-sources")
+    ap.add_argument("--sink", action="append", default=[], metavar="TYPE[:k=v,...]",
+                    help="pre-load a sink from the plugin registry (repeatable); see --list-sinks")
     ap.add_argument("--list-sources", action="store_true",
                     help="list registered source plugins and their args, then exit")
     ap.add_argument("--list-sinks", action="store_true",
                     help="list registered sink plugins and their args, then exit")
+    ap.add_argument("--ext", action="append", default=[], metavar="DIR",
+                    help="also import extension plugins from DIR (repeatable)")
+    ap.add_argument("--cli", action="store_true",
+                    help="start an interactive control console (reconfigure live)")
+    ap.add_argument("--no-ui", action="store_true",
+                    help="don't start the web server (headless / appliance)")
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
 
-    discover()  # populate SOURCES/SINKS by importing plugins/*.py, sinks/*.py
+    discover(extra_dirs=args.ext)  # populate SOURCES/SINKS from plugins/, sinks/, extensions/
 
     if args.list_sources:
         return print(describe(SOURCES))
@@ -174,38 +144,45 @@ def main():
     if args.selftest:
         return selftest()
     if args.list_ports:
-        return list_ports(args.mock)
+        return list_ports()
 
-    from server import serve
-    sources = {}
-    joycon = build_source(args.mock)
-    if joycon is not None:
-        sources["joycon"] = joycon
-    for sid, src in build_extra(SOURCES, args.source, "source").items():
-        if sid in sources:
-            print(f"[source] '{sid}' already present; skipping --source duplicate")
-            continue
-        sources[sid] = src
-
-    sinks = build_sinks(args)
-    for sid, sink in build_extra(SINKS, args.sink, "sink").items():
-        if sid in sinks:
-            print(f"[sink] '{sid}' already present; skipping --sink duplicate")
-            continue
-        sinks[sid] = sink
+    # No default source or sink: the engine comes up empty and you patch in
+    # hardware live. The flags below are pure pre-load shorthands.
+    source_specs = (["mock"] if args.mock else []) + list(args.source)
+    sink_specs = (["dryrun"] if args.dry_run else []) + list(args.sink)
+    sources = build_extra(SOURCES, source_specs, "source")
+    sinks = build_extra(SINKS, sink_specs, "sink")
 
     engine = EngineLoop(sources, sinks, load_graph(args.preset), PRESETS, rate=args.rate)
     engine.start()
-    httpd = serve(engine, args.host, args.port)
-    url = f"http://{args.host}:{args.port}"
-    print(f"\n  patchbay UI  ->  {url}\n  Ctrl+C to stop\n")
+
+    httpd = None
+    if not args.no_ui:
+        from server import serve
+        httpd = serve(engine, args.host, args.port)
+        url = f"http://{args.host}:{args.port}"
+        print(f"\n  patchbay UI  ->  {url}")
+
     try:
-        httpd.serve_forever()
+        if args.cli:
+            from control import Console
+            if httpd is not None:
+                threading.Thread(target=httpd.serve_forever, name="httpd", daemon=True).start()
+            print()
+            Console(engine).run()          # blocks until the user quits the console
+        elif httpd is not None:
+            print("  Ctrl+C to stop\n")
+            httpd.serve_forever()
+        else:
+            print("\n  engine running headless (no UI, no console); Ctrl+C to stop\n")
+            while True:
+                time.sleep(1.0)
     except KeyboardInterrupt:
         print("\nstopping...")
     finally:
         engine.stop()          # releases any held keys/buttons
-        httpd.server_close()
+        if httpd is not None:
+            httpd.server_close()
 
 
 if __name__ == "__main__":

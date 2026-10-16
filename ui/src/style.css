@@ -1,4 +1,4 @@
-/* joycon-patchbay UI — bench instrument aesthetic, amber sources / teal sinks / violet routing */
+/* sensor-patchbay UI — bench instrument aesthetic, amber sources / teal sinks / violet routing */
 :root{
   --bg:#14171a; --panel:#1c2024; --raised:#242a2e; --sunk:#0f1214;
   --ink:#e7e9e4; --ink-soft:#aab0aa; --muted:#767d76;
@@ -56,14 +56,15 @@ select{font-family:var(--mono); font-size:12px; color:var(--ink); background:var
 .pill.mock i,.pill.warn i{background:var(--warn); box-shadow:0 0 6px var(--warn)}
 .pill.bad i{background:var(--bad); box-shadow:0 0 6px var(--bad)}
 .rate{font-family:var(--mono); font-size:11px; color:var(--muted)}
+.rate-set{font-family:var(--mono); font-size:11px; color:var(--ink-soft);
+  display:inline-flex; align-items:center; gap:4px}
+.rate-set input{font-family:var(--mono); font-size:11px; width:52px; color:var(--ink);
+  background:var(--sunk); border:1px solid var(--line); border-radius:6px; padding:3px 5px}
+.rate-set input:hover{border-color:var(--ink-soft)}
 #panicBtn{background:transparent; border:1px solid var(--bad); color:var(--bad);
   font-family:var(--mono); font-weight:600; letter-spacing:.08em; padding:6px 14px}
 #panicBtn.armed{background:var(--bad); color:#160b0a; animation:pulse 1s infinite}
 @keyframes pulse{50%{opacity:.55}}
-#visionBtn{background:transparent; border:1px solid var(--in); color:var(--in);
-  font-family:var(--mono); font-weight:600; letter-spacing:.08em; padding:6px 14px}
-#visionBtn.on{background:var(--in); color:#160b0a}
-#visionBtn:disabled{border-color:var(--line); color:var(--muted); cursor:not-allowed}
 
 /* ---- patch area ---- */
 #patch{flex:1; position:relative; display:flex; gap:0; overflow:auto; padding:26px clamp(16px,5vw,80px)}
@@ -86,8 +87,27 @@ select{font-family:var(--mono); font-size:12px; color:var(--ink); background:var
 .src-mod .mh .swatch{background:var(--in)}
 .sink-mod .mh .swatch{background:var(--out)}
 .module .mh .mstatus{margin-left:auto; font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em}
+.module .mh .mdrop{padding:1px 6px; font-size:11px; line-height:1; border-radius:6px;
+  background:transparent; border:1px solid transparent; color:var(--muted)}
+.module .mh .mdrop:hover{color:var(--bad); border-color:var(--bad)}
 .grp-label{font-family:var(--mono); font-size:9.5px; letter-spacing:.14em; text-transform:uppercase;
   color:var(--muted); padding:8px 12px 3px}
+
+/* ---- add-module picker ---- */
+.add-mod{width:290px; margin-top:14px; padding:10px 12px; background:var(--panel);
+  border:1px dashed var(--line); border-radius:11px; display:flex; flex-direction:column; gap:8px}
+#sinks .add-mod{align-self:flex-end}
+.add-mod .addType{max-width:100%; width:100%}
+.add-mod .addArgs{display:flex; flex-direction:column; gap:6px}
+.add-mod .addArgs label{display:flex; align-items:center; gap:8px; font-family:var(--mono);
+  font-size:11px; color:var(--ink-soft)}
+.add-mod .addArgs label input{flex:1; min-width:0; font-family:var(--mono); font-size:11px;
+  color:var(--ink); background:var(--sunk); border:1px solid var(--line); border-radius:6px; padding:4px 7px}
+.add-mod .addArgs label input[type=checkbox]{flex:none}
+.add-mod .addBtn{align-self:flex-start; border-color:var(--out); color:var(--out)}
+.add-mod .addBtn:disabled{border-color:var(--line); color:var(--muted); cursor:not-allowed}
+.add-mod .addReason{font-family:var(--mono); font-size:10px; color:var(--warn); min-height:0}
+.add-mod .addReason:empty{display:none}
 
 /* ---- jack ---- */
 .jack{padding:5px 12px 6px; cursor:pointer}
@@ -127,6 +147,7 @@ select{font-family:var(--mono); font-size:12px; color:var(--ink); background:var
 #inspector{position:fixed; top:0; right:0; width:340px; height:100%; z-index:6;
   background:var(--panel); border-left:1px solid var(--line); box-shadow:-16px 0 40px rgba(0,0,0,.35);
   display:flex; flex-direction:column; padding:16px; gap:14px; overflow-y:auto}
+#inspector[hidden]{display:none}
 .insp-head{display:flex; justify-content:space-between; align-items:flex-start; gap:10px}
 .insp-title{font-family:var(--mono); font-size:13px}
 .insp-sub{font-family:var(--mono); font-size:11px; color:var(--muted); margin-top:3px; word-break:break-all}

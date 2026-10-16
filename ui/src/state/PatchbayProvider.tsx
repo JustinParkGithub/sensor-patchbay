@@ -26,8 +26,16 @@ import {
   wiredPorts,
 } from '../lib/ports'
 import type { PortEntry } from '../lib/ports'
-import { EMPTY_GRAPH } from '../types'
-import type { ChainNode, Connection, Graph, ModuleSpec, NodeSpecs, VisionState } from '../types'
+import { EMPTY_CATALOG, EMPTY_GRAPH } from '../types'
+import type {
+  ChainNode,
+  Connection,
+  Graph,
+  ModuleKind,
+  ModuleSpec,
+  NodeSpecs,
+  PluginCatalog,
+} from '../types'
 import { useLiveStatus } from './LiveProvider'
 import { useToastHandlers } from './ToastProvider'
 
@@ -39,7 +47,8 @@ interface PatchbayValue {
   presets: string[]
   presetName: string
   graph: Graph
-  vision: VisionState
+  /** Every registered plugin type, for the add-source / add-sink pickers. */
+  plugins: PluginCatalog
 
   portIndex: Map<string, PortEntry>
   wired: Set<string>
@@ -53,6 +62,10 @@ interface PatchbayValue {
   setChain: (id: string, chain: ChainNode[]) => Promise<void>
   setEnabled: (id: string, enabled: boolean) => Promise<void>
   deleteConnection: (id: string) => Promise<void>
+  /** Instantiate a plugin type live; resolves false if the engine refused. */
+  addModule: (kind: ModuleKind, type: string, args: Record<string, unknown>) => Promise<boolean>
+  /** Stop and drop a module; the engine deletes every cable that used it. */
+  removeModule: (kind: ModuleKind, id: string) => Promise<void>
   /** Re-read modules, presets and the graph — after any preset-level change. */
   reloadAll: () => Promise<void>
   setPresets: (presets: string[]) => void
@@ -62,7 +75,7 @@ const PatchbayContext = createContext<PatchbayValue | null>(null)
 
 export function PatchbayProvider({ children }: { children: ReactNode }) {
   const { toast, toastError } = useToastHandlers()
-  const { preset: livePreset } = useLiveStatus()
+  const { preset: livePreset, modRev } = useLiveStatus()
 
   const [ready, setReady] = useState(false)
   const [modules, setModules] = useState<ModuleSpec[]>([])
@@ -70,7 +83,7 @@ export function PatchbayProvider({ children }: { children: ReactNode }) {
   const [presets, setPresets] = useState<string[]>([])
   const [presetName, setPresetName] = useState('')
   const [graph, setGraph] = useState<Graph>(EMPTY_GRAPH)
-  const [vision, setVision] = useState<VisionState>({ available: false, on: false })
+  const [plugins, setPlugins] = useState<PluginCatalog>(EMPTY_CATALOG)
   const [armed, setArmed] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
@@ -91,7 +104,7 @@ export function PatchbayProvider({ children }: { children: ReactNode }) {
     setModules(state.modules)
     setPresets(state.presets)
     setPresetName(state.preset)
-    setVision(state.vision)
+    setPlugins(state.plugins)
     setGraph(nextGraph)
     setSelectedId(null)
     setArmed(null)
@@ -108,7 +121,7 @@ export function PatchbayProvider({ children }: { children: ReactNode }) {
         setNodeSpecs(state.nodes)
         setPresets(state.presets)
         setPresetName(state.preset)
-        setVision(state.vision)
+        setPlugins(state.plugins)
         setGraph(nextGraph)
         setReady(true)
       } catch (e) {
@@ -132,7 +145,7 @@ export function PatchbayProvider({ children }: { children: ReactNode }) {
         setModules(state.modules)
         setPresets(state.presets)
         setPresetName(state.preset)
-        setVision(state.vision)
+        setPlugins(state.plugins)
         setGraph(nextGraph)
         toast(`preset → ${state.preset}`)
       } catch (e) {
@@ -143,6 +156,62 @@ export function PatchbayProvider({ children }: { children: ReactNode }) {
       cancelled = true
     }
   }, [ready, livePreset, presetName, toast, toastError])
+
+  // ---- modules added / removed behind our back -------------------
+  // another tab, or the --cli console. Our own add/remove bumps it too; the
+  // re-read is cheap and keeps every client converging on the same view.
+  useEffect(() => {
+    if (!ready || !modRev) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const [state, nextGraph] = await Promise.all([api.state(), api.graph()])
+        if (cancelled) return
+        setModules(state.modules)
+        setPlugins(state.plugins)
+        setGraph(nextGraph)
+      } catch (e) {
+        if (!cancelled) toastError(e)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [ready, modRev, toastError])
+
+  const addModule = useCallback(
+    async (kind: ModuleKind, type: string, args: Record<string, unknown>) => {
+      try {
+        const res = await api.addModule(kind, type, args)
+        setModules(res.modules)
+        await refreshGraph()
+        toast(`added ${kind} "${res.id}"`)
+        return true
+      } catch (e) {
+        toastError(e)
+        return false
+      }
+    },
+    [refreshGraph, toast, toastError],
+  )
+
+  const removeModule = useCallback(
+    async (kind: ModuleKind, id: string) => {
+      try {
+        const res = await api.removeModule(kind, id)
+        setModules(res.modules)
+        setGraph(res.graph)
+        // the selected cable / armed jack may have gone with the module
+        setSelectedId((cur) => (res.graph.connections.some((c) => c.id === cur) ? cur : null))
+        setArmed((cur) => (cur?.startsWith(`${id}/`) ? null : cur))
+        const n = res.dropped
+        toast(`removed ${id}${n ? ` (−${n} cable${n > 1 ? 's' : ''})` : ''}`)
+      } catch (e) {
+        toastError(e)
+      }
+    },
+    [toast, toastError],
+  )
 
   // ---- patching --------------------------------------------------
   const clickJack = useCallback(
@@ -220,7 +289,7 @@ export function PatchbayProvider({ children }: { children: ReactNode }) {
       presets,
       presetName,
       graph,
-      vision,
+      plugins,
       portIndex,
       wired,
       armed,
@@ -231,6 +300,8 @@ export function PatchbayProvider({ children }: { children: ReactNode }) {
       setChain,
       setEnabled,
       deleteConnection,
+      addModule,
+      removeModule,
       reloadAll,
       setPresets,
     }),
@@ -241,7 +312,7 @@ export function PatchbayProvider({ children }: { children: ReactNode }) {
       presets,
       presetName,
       graph,
-      vision,
+      plugins,
       portIndex,
       wired,
       armed,
@@ -251,6 +322,8 @@ export function PatchbayProvider({ children }: { children: ReactNode }) {
       setChain,
       setEnabled,
       deleteConnection,
+      addModule,
+      removeModule,
       reloadAll,
     ],
   )

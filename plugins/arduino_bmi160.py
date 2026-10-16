@@ -67,9 +67,19 @@ def _autodetect_port():
 
 @register_source
 class ArduinoBMI160(Source):
+    type = "bmi160"
     id = "bmi160"
     label = "BMI160 (Arduino Nano)"
     PORTS = PORTS
+
+    @classmethod
+    def available(cls):
+        try:
+            import serial  # noqa: F401
+        except Exception as e:
+            return False, f"needs pyserial ({e})"
+        return True
+
     ARGS = {
         "port": {"default": None, "type": str,
                  "help": "serial device; auto-detected if omitted"},

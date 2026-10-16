@@ -1,0 +1,12 @@
+# Optional: webcam hand tracking + gesture recognition (plugins/cv_hands.py,
+# source type `cv`). Without these the plugin still registers but shows as
+# unavailable in the add-source picker.
+#
+#   python -m pip install -r requirements-cv.txt
+#
+# Also needs the MediaPipe model at task/gesture_recognizer.task (git-ignored);
+# download it from the MediaPipe gesture recognizer docs. mediapipe wheels lag
+# new Python releases — use a Python version it publishes wheels for.
+
+opencv-python          # webcam capture
+mediapipe              # hand landmarks + gesture recognition

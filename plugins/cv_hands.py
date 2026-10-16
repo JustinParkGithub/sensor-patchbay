@@ -5,13 +5,16 @@ The same MediaPipe ``GestureRecognizer`` as ``tracker_templates/gesture_tracker.
 in the ``Source`` contract: the camera and the model run on their own thread, and
 ``read()`` just hands back the latest flat dict of ports.
 
-Needs ``opencv-python`` + ``mediapipe`` and the model file at
-``task/gesture_recognizer.task`` (override with ``model=``). If either library
-is missing, this module fails to import and ``discover()`` skips it, so the UI's
-vision button shows up disabled instead of the whole app failing.
+Self-contained: nothing in the engine, server or UI knows about it. It is just
+another registered source, added like any other — from the GUI's *add source*
+picker, ``--source cv:camera=1``, or the ``--cli`` console's ``add`` — and
+removed the same way.
 
-It can be started either from the command line (``--source cv``) or at runtime
-from the UI's vision button (``POST /api/vision``).
+Needs the optional extras in ``requirements-cv.txt`` (``opencv-python`` +
+``mediapipe``) and the model file at ``task/gesture_recognizer.task`` (override
+with ``model=``). Both libraries are imported lazily, so the plugin registers
+without them and :meth:`HandGestureCV.available` greys it out in the picker with
+the reason instead.
 """
 
 from __future__ import annotations
@@ -20,10 +23,6 @@ import math
 import threading
 import time
 from pathlib import Path
-
-import cv2
-import mediapipe as mp
-from mediapipe.tasks.python import vision
 
 from engine.registry import register_source
 from engine.signals import EVENT, SCALAR, PortSpec
@@ -59,9 +58,19 @@ PORTS = [
 
 @register_source
 class HandGestureCV(Source):
+    type = "cv"
     id = "cv"
     label = "Hand tracker (camera)"
     PORTS = PORTS
+
+    @classmethod
+    def available(cls):
+        try:
+            import cv2  # noqa: F401
+            import mediapipe  # noqa: F401
+        except Exception as e:
+            return False, f"needs opencv-python + mediapipe — pip install -r requirements-cv.txt ({e})"
+        return True
     ARGS = {
         "camera": {"default": 0, "type": int, "help": "OpenCV camera index"},
         "model": {"default": str(DEFAULT_MODEL), "type": str,
@@ -71,6 +80,11 @@ class HandGestureCV(Source):
     }
 
     def __init__(self, camera=0, model=str(DEFAULT_MODEL), min_score=0.5):
+        import cv2  # lazy: optional deps (see available())
+        import mediapipe as mp
+        from mediapipe.tasks.python import vision
+
+        self._cv2, self._mp = cv2, mp
         self._min_score = min_score
         self._lock = threading.Lock()
         self._latest = self._idle()
@@ -89,7 +103,7 @@ class HandGestureCV(Source):
 
         # Open eagerly so a missing camera / denied permission fails the
         # request that asked for it, instead of a silent "ok" module.
-        self._cap = cv2.VideoCapture(camera)
+        self._cap = cv2.VideoCapture(int(camera))
         if not self._cap.isOpened():
             self._recognizer.close()
             raise RuntimeError(f"could not open camera {camera} (on macOS, grant the "
@@ -119,6 +133,7 @@ class HandGestureCV(Source):
         return {p.id: 0.0 for p in PORTS}
 
     def _poll(self):
+        cv2, mp = self._cv2, self._mp
         t0 = time.monotonic()
         while not self._stop.is_set():
             ok, frame = self._cap.read()
