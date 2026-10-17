@@ -163,6 +163,20 @@
       "sink": "hid/mouse.dx",
       "enabled": true,
       "chain": []
+    },
+    {
+      "id": "c_a75f25d3",
+      "source": "cv/gesture.fist",
+      "sink": "hid/mouse.dx",
+      "enabled": true,
+      "chain": []
+    },
+    {
+      "id": "c_cba8ea7f",
+      "source": "cv/gesture.palm",
+      "sink": "hid/mouse.dy",
+      "enabled": true,
+      "chain": []
     }
   ]
 }

@@ -154,21 +154,23 @@ with an `invert` node in the patch panel rather than editing the plugin.
 ## Adding a source: camera hand tracking (OpenCV + MediaPipe)
 
 `plugins/cv_hands.py` turns a webcam into a source (type `cv`): the index-finger
-tip as `hand.x`/`hand.y`, a thumb–index `hand.pinch`, and MediaPipe's canned
-gestures (`gesture.fist`, `gesture.palm`, `gesture.point`, ...) as events. Its
-dependencies are optional and kept out of the core install:
+tip as `hand.x`/`hand.y`, a thumb–index `hand.pinch`, and all 21 raw MediaPipe
+hand landmarks grouped by finger — `wrist.x`, `thumb_tip.y`, `index_mcp.z`, ...
+(-1..1, x mirrored, y up, z + toward the camera). Its card shows a small live
+camera preview with the landmarks drawn on. Its dependencies are optional and kept out of the core install:
 
 ```bash
 python -m pip install -r requirements-cv.txt   # opencv-python + mediapipe
-# plus the model file at task/gesture_recognizer.task (from the MediaPipe docs)
+# plus the model file at task/hand_landmarker.task (from the MediaPipe docs)
 python run.py --source cv                      # or add "Hand tracker (camera)" from the UI
-python run.py --source cv:camera=1,min_score=0.7
+python run.py --source cv:camera=1
 ```
 
 Without those packages it still appears in the *add source* picker, greyed out
 with the reason. On macOS, grant your terminal camera access in System Settings ›
 Privacy the first time. `tracker_templates/` holds the standalone OpenCV
-prototype scripts the plugin was built from; they are not loaded by the engine.
+prototype scripts the plugin was built from; `cv_hands` imports the landmarker
+setup from `hand_tracker.py`, but the scripts themselves aren't run by the engine.
 
 ---
 

@@ -74,6 +74,8 @@ class Handler(BaseHTTPRequestHandler):
                 "nodes": NODE_SPECS,
                 "plugins": self._plugins(),
             })
+        if p.startswith("/api/source/") and p.endswith("/preview"):
+            return self._preview(p[len("/api/source/"):-len("/preview")])
         if p == "/api/plugins":
             return self._json(self._plugins())
         if p == "/api/graph":
@@ -194,6 +196,32 @@ class Handler(BaseHTTPRequestHandler):
                 snap = self.engine.snapshot()
                 self.wfile.write(b"data: " + json.dumps(snap).encode() + b"\n\n")
                 self.wfile.flush()
+                time.sleep(1 / 30)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            return
+
+
+    def _preview(self, iid):
+        """MJPEG stream of a source's preview frames (an <img> plays it as video).
+        Ends when the source is removed; the browser's <img> just goes blank."""
+        src = self.engine.sources.get(iid)
+        if src is None or not getattr(src, "PREVIEW", False):
+            return self._send(404, b'{"error":"no preview"}')
+        self.close_connection = True       # no Content-Length: the stream ends the connection
+        self.send_response(200)
+        self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        last = None
+        try:
+            while self.engine.sources.get(iid) is src:
+                jpeg = src.preview_jpeg()
+                if jpeg is not None and jpeg is not last:
+                    last = jpeg
+                    self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\n"
+                                     b"Content-Length: " + str(len(jpeg)).encode() +
+                                     b"\r\n\r\n" + jpeg + b"\r\n")
+                    self.wfile.flush()
                 time.sleep(1 / 30)
         except (BrokenPipeError, ConnectionResetError, OSError):
             return

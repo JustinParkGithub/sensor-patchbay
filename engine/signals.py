@@ -44,6 +44,7 @@ class ModuleSpec:
     kind: str                     # "source" | "sink"
     ports: list = field(default_factory=list)
     status: str = "ok"            # free-form: "ok" | "mock" | "disconnected" | "error: ..."
+    preview: bool = False         # serves a live JPEG preview at /api/source/<id>/preview
 
     def to_dict(self):
         d = asdict(self)

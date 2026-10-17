@@ -26,6 +26,8 @@ export interface ModuleSpec {
   ports: PortSpec[]
   /** Free-form: "ok" | "mock" | "dry-run" | "error: ..." */
   status: string
+  /** Serves a live MJPEG preview at `/api/source/<id>/preview` (e.g. the camera). */
+  preview?: boolean
 }
 
 export type ParamValue = number | string

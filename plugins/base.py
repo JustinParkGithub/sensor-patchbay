@@ -48,6 +48,7 @@ class Source:
     label = "source"
     PORTS: list[PortSpec] = []
     ARGS: dict = {}       # constructor kwargs exposed to --source type:k=v,...
+    PREVIEW = False       # True if preview_jpeg() returns frames (the UI then shows them)
 
     @classmethod
     def available(cls):
@@ -68,7 +69,12 @@ class Source:
         return "ok"
 
     def module(self) -> ModuleSpec:
-        return ModuleSpec(self.id, self.label, "source", list(self.PORTS), self.status())
+        return ModuleSpec(self.id, self.label, "source", list(self.PORTS), self.status(),
+                          preview=self.PREVIEW)
+
+    def preview_jpeg(self) -> bytes | None:
+        """Latest preview frame as JPEG bytes, or None if there isn't one (yet)."""
+        return None
 
     def read(self) -> dict:
         raise NotImplementedError

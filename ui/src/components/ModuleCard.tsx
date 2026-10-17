@@ -32,6 +32,13 @@ export function ModuleCard({ module }: { module: ModuleSpec }) {
           </button>
         )}
       </div>
+      {module.preview && (
+        <img
+          className="mpreview"
+          src={`/api/source/${encodeURIComponent(module.id)}/preview`}
+          alt={`${module.label} preview`}
+        />
+      )}
       {module.ports.map((port) => {
         const heading = port.group !== lastGroup ? port.group : null
         lastGroup = port.group
