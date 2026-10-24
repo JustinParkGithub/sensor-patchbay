@@ -1,6 +1,6 @@
 """Arduino Nano + BMI160 (I2C) over USB serial.
 
-Pairs with ``firmware/bmi160_nano/bmi160_nano.ino`` — same library and the same
+Pairs with ``sources/bmi160/firmware/bmi160_nano/bmi160_nano.ino`` — same library and the same
 ``BMI160.readGyro`` / ``BMI160.readAccelerometer`` calls as the how2electronics
 tutorial this was built from, just reformatted to stream continuously instead
 of once a second: one CSV line per sample, ``ax,ay,az,gx,gy,gz\\n``, raw int16
@@ -22,7 +22,7 @@ import time
 
 from engine.registry import register_source
 from engine.signals import PortSpec, SCALAR
-from plugins.base import Source
+from sources.base import Source
 
 # Must match BMI160.setAccelerometerRange(...) / BMI160.setGyroRange(...) in the
 # sketch. Datasheet sensitivity for a 16-bit signed reading at that range.
@@ -201,14 +201,14 @@ class ArduinoBMI160(Source):
                     print(f"[bmi160] receiving data on {self._port_arg} but no "
                           f"line parses as 'ax,ay,az,gx,gy,gz' (got e.g. {text!r}). "
                           f"Wrong sketch, or baud != {self._baud}? Upload "
-                          "firmware/bmi160_nano/bmi160_nano.ino.")
+                          "sources/bmi160/firmware/bmi160_nano/bmi160_nano.ino.")
             return  # a banner line or a torn frame; wait for the next one
         ax, ay, az, gx, gy, gz = ints
         self._frames += 1
         self._unparsed = 0
 
         # calibration: first ~90 frames establish gyro bias (Nano is assumed
-        # stationary at startup, same convention as plugins/joycon_r.py)
+        # stationary at startup, same convention as sources/joycon/)
         if self._cal_n < 90:
             self._cal_n += 1
             k = 1.0 / self._cal_n

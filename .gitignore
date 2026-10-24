@@ -2,8 +2,12 @@ __pycache__/
 *.pyc
 presets/*-copy.json
 .venv/
+.claude/
+.DS_Store
+
+# Downloaded module assets (model files etc.), fetched + hash-checked by the sync
+*.task
 
 # UI: node_modules is disposable, but ui/dist is committed on purpose so
 # `python run.py` works without a Node toolchain (see ui/README.md).
 ui/node_modules/
-task/

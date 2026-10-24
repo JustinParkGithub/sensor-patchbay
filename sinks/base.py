@@ -6,7 +6,7 @@ every tick. A port that is *absent* from that dict means "no signal this tick" â
 treat it as 0 and release whatever it was holding. Implement ``release_all()`` so
 the panic button and a clean shutdown can silence you instantly.
 
-Making it selectable is identical to a source (see ``plugins/base.py``): decorate
+Making it selectable is identical to a source (see ``sources/base.py``): decorate
 with ``@register_sink``, give it a ``type`` (registry / dropdown key), an ``id``
 (default bus namespace), ``label``, and an ``ARGS`` dict. It then appears in the
 GUI's *add sink* dropdown and in ``--list-sinks``, and is usable as

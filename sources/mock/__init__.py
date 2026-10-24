@@ -13,8 +13,8 @@ import math
 import time
 
 from engine.registry import register_source
-from plugins.base import Source
-from plugins.joycon_r import JOYCON_PORTS
+from sources.base import Source
+from sources.joycon import JOYCON_PORTS
 
 
 @register_source

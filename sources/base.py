@@ -4,7 +4,7 @@ Subclass ``Source``, list your ports in ``PORTS`` (or override ``module()``), an
 return a ``{port_id: float}`` dict from ``read()`` each tick. Flatten any vector
 into per-axis scalar ports (``accel.x`` ...). Keep ``read()`` cheap and
 non-blocking — it runs inside the engine loop; do real I/O on your own thread
-(see ``plugins/joycon_r.py`` or ``plugins/arduino_bmi160.py``).
+(see ``sources/joycon/`` or ``sources/bmi160/``).
 
 Making it selectable
 --------------------
@@ -27,7 +27,7 @@ is usable as ``--source mysensor:port=/dev/ttyACM0``. ``id`` is the namespace th
 ports live under on the bus (``mysensor/whatever``); keep it stable, presets
 reference it by name. ``type`` and ``id`` are separate on purpose — a *stand-in*
 (the mock Joy-Con) keeps its own ``type`` but borrows the real device's ``id`` so
-presets are portable between them (see ``plugins/mock.py``).
+presets are portable between them (see ``sources/mock/``).
 
 Optional dependencies
 ---------------------

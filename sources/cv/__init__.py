@@ -1,6 +1,6 @@
 """Webcam hand tracking (MediaPipe), as a patchbay source.
 
-The MediaPipe ``HandLandmarker`` from ``tracker_templates/hand_tracker.py`` (its
+The MediaPipe ``HandLandmarker`` from ``hand_tracker.py`` (next to this file; its
 options, model path and landmark helpers are reused from there), wrapped in the
 ``Source`` contract: the camera and the model run on their own thread, and
 ``read()`` just hands back the latest flat dict of ports — all 21 raw landmarks
@@ -27,11 +27,11 @@ from pathlib import Path
 
 from engine.registry import register_source
 from engine.signals import EVENT, SCALAR, PortSpec
-from plugins.base import Source
+from sources.base import Source
 
-# Same path as tracker_templates.hand_tracker.MODEL_PATH; duplicated so this module
+# Same path as hand_tracker.MODEL_PATH; duplicated so this module
 # doesn't import cv2/mediapipe (via hand_tracker) before available() has checked them.
-DEFAULT_MODEL = Path(__file__).resolve().parent.parent / "task" / "hand_landmarker.task"
+DEFAULT_MODEL = Path(__file__).resolve().parent / "hand_landmarker.task"
 
 # Camera preview shown in the module card: width in pixels, max frame rate, and
 # the landmark dots (BGR pink/purple, small enough for the scaled-down frame).
@@ -90,7 +90,7 @@ class HandTrackerCV(Source):
     def __init__(self, camera=0, model=str(DEFAULT_MODEL)):
         import cv2  # lazy: optional deps (see available())
         import mediapipe as mp
-        from tracker_templates import hand_tracker
+        from . import hand_tracker
 
         self._cv2, self._mp, self._ht = cv2, mp, hand_tracker
         self._lock = threading.Lock()

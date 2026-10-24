@@ -81,7 +81,7 @@ Pi, or read a new sensor?
 3. Start the app. It's in the dropdown.
 
 There's a complete, working example in
-[`extensions/example_gpio_sink.py`](../extensions/example_gpio_sink.py): it drives
+[`sinks/gpio/`](../sinks/gpio/): it drives
 Raspberry Pi GPIO pins — PWM channels for servos or a drone's ESCs, digital pins
 for relays — and, cleverly, falls back to just *printing* what it would do when
 you're building the patch on a laptop with no Pi attached. Copy it as your

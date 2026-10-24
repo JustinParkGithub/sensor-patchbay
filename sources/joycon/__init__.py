@@ -17,7 +17,7 @@ import time
 
 from engine.registry import register_source
 from engine.signals import PortSpec, SCALAR, EVENT
-from plugins.base import Source
+from sources.base import Source
 
 # Shared by the mock source so presets built against one work against the other.
 JOYCON_PORTS = [

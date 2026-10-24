@@ -135,7 +135,7 @@ def main():
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
 
-    discover(extra_dirs=args.ext)  # populate SOURCES/SINKS from plugins/, sinks/, extensions/
+    discover(extra_dirs=args.ext)  # populate SOURCES/SINKS from sources/, sinks/ (+ --ext dirs)
 
     if args.list_sources:
         return print(describe(SOURCES))

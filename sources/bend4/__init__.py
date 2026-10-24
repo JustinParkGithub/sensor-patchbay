@@ -1,6 +1,6 @@
 """Arduino Nano + 4 bend/flex sensors over USB serial.
 
-Pairs with ``firmware/bend4_nano/bend4_nano.ino`` — four flex sensors wired to
+Pairs with ``sources/bend4/firmware/bend4_nano/bend4_nano.ino`` — four flex sensors wired to
 analog pins A2-A5, read as 10-bit ADC values (0-1023) and streamed one
 whitespace-separated line per sample::
 
@@ -31,7 +31,7 @@ import time
 
 from engine.registry import register_source
 from engine.signals import PortSpec, SCALAR
-from plugins.base import Source
+from sources.base import Source
 
 ADC_MAX = 1023.0          # 10-bit ADC full scale
 N_CHANNELS = 4            # A2, A3, A4, A5
@@ -227,7 +227,7 @@ class ArduinoBend4(Source):
                     print(f"[bend4] receiving data on {self._port_arg} but no "
                           f"line parses as four ints (got e.g. {text!r}). Wrong "
                           f"sketch, or baud != {self._baud}? Upload "
-                          "firmware/bend4_nano/bend4_nano.ino.")
+                          "sources/bend4/firmware/bend4_nano/bend4_nano.ino.")
             return  # a banner line or a torn frame; wait for the next one
         self._frames += 1
         self._unparsed = 0

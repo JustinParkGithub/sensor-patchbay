@@ -1,4 +1,5 @@
 import cv2
+from pathlib import Path
 import sys
 import time
 import select
@@ -50,7 +51,7 @@ def gesture_print_result(result: GestureRecognizerResult, output_image: mp.Image
     _latest_result = result  #main loop picks this up on its next iteration
 
 gesture_options = GestureRecognizerOptions(
-    base_options=BaseOptions(model_asset_path='../task/gesture_recognizer.task'),
+    base_options=BaseOptions(model_asset_path=str(Path(__file__).resolve().parent / 'gesture_recognizer.task')),
     num_hands = NUM_HANDS,
     running_mode=VisionRunningMode.LIVE_STREAM,
     result_callback=gesture_print_result)

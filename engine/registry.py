@@ -22,8 +22,8 @@ same board at once — a second instance is just given a suffixed id
 
 Discovery
 ---------
-:func:`discover` imports every module under ``plugins/`` and ``sinks/`` (and any
-extension directory) once, each in its own ``try/except`` so one plugin's missing
+:func:`discover` imports every module folder under ``sources/`` and ``sinks/``
+(and any extension directory) once, each in its own ``try/except`` so one plugin's missing
 dependency never blocks the others, which is enough for the ``@register_source`` /
 ``@register_sink`` decorators to populate :data:`SOURCES` / :data:`SINKS`.
 
@@ -68,16 +68,13 @@ def register_sink(cls):
 def _extension_dirs() -> list[Path]:
     """Extra directories of loose ``*.py`` extension modules to import.
 
-    An "installed" extension is simply a ``.py`` file dropped into one of these:
+    The repo's own ``sources/`` and ``sinks/`` are the main drop-in folders; these
+    are for modules kept outside the repo:
 
-    * ``<repo>/extensions/`` (always scanned if present),
     * every path in the ``PATCHBAY_EXT_PATH`` env var (os.pathsep-separated),
     * anything passed to :func:`discover` via ``extra_dirs`` (the ``--ext`` flag).
     """
     dirs = []
-    repo_ext = Path(__file__).resolve().parent.parent / "extensions"
-    if repo_ext.is_dir():
-        dirs.append(repo_ext)
     for raw in os.environ.get("PATCHBAY_EXT_PATH", "").split(os.pathsep):
         if raw.strip():
             dirs.append(Path(raw.strip()))
@@ -112,10 +109,10 @@ def discover(extra_dirs: list | None = None):
     dependency, unsupported platform, ...) is skipped silently — it simply never
     registers, and stays unavailable rather than fatal.
     """
-    import plugins as _plugins_pkg
+    import sources as _sources_pkg
     import sinks as _sinks_pkg
 
-    for pkg in (_plugins_pkg, _sinks_pkg):
+    for pkg in (_sources_pkg, _sinks_pkg):
         for _, modname, _ in pkgutil.iter_modules(pkg.__path__, pkg.__name__ + "."):
             try:
                 importlib.import_module(modname)

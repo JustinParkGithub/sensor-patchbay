@@ -12,8 +12,8 @@ from an on-device **CLI console** — two front-ends over one engine. It runs
 entirely offline and saves presets as plain JSON.
 
 ```
-Joy-Con (R)  ──BT───►  plugins/joycon_r.py       ─┐
-Nano + BMI160 ──USB──► plugins/arduino_bmi160.py  ┤                                 ┌─► sinks/mouse_keyboard.py ──► OS
+Joy-Con (R)  ──BT───►  sources/joycon/       ─┐
+Nano + BMI160 ──USB──► sources/bmi160/  ┤                                 ┌─► sinks/hid/ ──► OS
 your sensor  ──────►   extensions/*.py            ├─► engine (bus + graph + nodes) ─┤
                                                   ┘        ▲          ▲             └─► extensions/*.py ──────► GPIO / …
                                                      fixed 120 Hz  presets/*.json
@@ -109,13 +109,13 @@ orientation for `tilt.pitch` / `tilt.roll`.
 
 ## Adding a source: Arduino Nano + BMI160
 
-`plugins/arduino_bmi160.py` reads a Nano running `firmware/bmi160_nano/bmi160_nano.ino`
+`sources/bmi160/` reads a Nano running `sources/bmi160/firmware/bmi160_nano/bmi160_nano.ino`
 over USB serial — no Bluetooth, no pairing, just a cable.
 
 **Wire it up** (I2C): BMI160 `VCC`→`5V` (or `3V3`, check your breakout),
 `GND`→`GND`, `SCL`→`A5`, `SDA`→`A4`.
 
-**Flash it**: open `firmware/bmi160_nano/bmi160_nano.ino` in the Arduino IDE,
+**Flash it**: open `sources/bmi160/firmware/bmi160_nano/bmi160_nano.ino` in the Arduino IDE,
 install the **BMI160-Arduino** library (Library Manager, or
 https://github.com/hanyazou/BMI160-Arduino), select *Arduino Nano* as the
 board, upload.
@@ -146,14 +146,14 @@ whatever else you like in the patch panel.
 **If ports look wrong or jump around**: the firmware sends a fixed ±2 g /
 ±250 deg/s range explicitly (`BMI160.setAccelerometerRange`/`setGyroRange` in
 the sketch) — `ACCEL_LSB_PER_G`/`GYRO_LSB_PER_DPS` at the top of
-`plugins/arduino_bmi160.py` assume exactly that. Change both sides together if
+`sources/bmi160/` assume exactly that. Change both sides together if
 you reconfigure the sensor's range. If pitch/roll are inverted for how you've
 mounted the board, that's an orientation convention, not a bug — flip the axis
 with an `invert` node in the patch panel rather than editing the plugin.
 
 ## Adding a source: camera hand tracking (OpenCV + MediaPipe)
 
-`plugins/cv_hands.py` turns a webcam into a source (type `cv`): the index-finger
+`sources/cv/` turns a webcam into a source (type `cv`): the index-finger
 tip as `hand.x`/`hand.y`, a thumb–index `hand.pinch`, and all 21 raw MediaPipe
 hand landmarks grouped by finger — `wrist.x`, `thumb_tip.y`, `index_mcp.z`, ...
 (-1..1, x mirrored, y up, z + toward the camera). Its card shows a small live
@@ -367,16 +367,16 @@ so a machine without the library still lists it politely instead of failing to
 load.
 
 There's a complete, working example already in the tree:
-[`extensions/example_gpio_sink.py`](extensions/example_gpio_sink.py) drives
+[`sinks/gpio/`](sinks/gpio/) drives
 Raspberry Pi GPIO — PWM channels for servos / drone ESCs, digital pins for relays —
 and falls back to logging when there's no Pi, so you can build the patch on a
 laptop. Copy it.
 
-### A new input — subclass `plugins.base.Source`
+### A new input — subclass `sources.base.Source`
 
 Return `{port_id: float}` from `read()` each tick; flatten vectors to `accel.x`
 etc. Keep `read()` non-blocking (do I/O on your own thread, like
-`plugins/joycon_r.py` or `plugins/arduino_bmi160.py`). Decorate with
+`sources/joycon/` or `sources/bmi160/`). Decorate with
 `@register_source`, give it a `type`/`id`/`ARGS`, and it's selectable the same way
 (`--source yourtype[:k=v,...]`, the dropdown, or `add source`).
 
@@ -389,7 +389,7 @@ A sink can speak whatever protocol you like. For hardware that lives on another
 machine or behind a slow/blocking transport, keep the real-time loop isolated by
 having the sink hand each tick's `{port: value}` to a queue or socket and doing
 the actual I/O off the engine thread — the same pattern the source plugins use
-for reads. `extensions/example_gpio_sink.py` (below) is a complete working sink
+for reads. `sinks/gpio/` (below) is a complete working sink
 to copy.
 
 ---
@@ -427,7 +427,7 @@ run.py      entrypoint
   `mod_rev` live-refresh signal, presets and panic via `--selftest` and a scripted
   API pass; the plugin registry (`discover`, availability probing,
   `--list-sources`/`--list-sinks`, type-based instantiation) and the CLI console
-  via scripted passes. `plugins/arduino_bmi160.py`'s parser/calibration/tilt math
+  via scripted passes. `sources/bmi160/`'s parser/calibration/tilt math
   is unit-tested against synthetic serial frames — it has not been run against a
   real Nano+BMI160 here; check `--list-ports` picks up `bmi160` and the meters move
   once you have the hardware. The browser UI's JavaScript is syntax- and

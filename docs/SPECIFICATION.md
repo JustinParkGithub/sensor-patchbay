@@ -207,7 +207,7 @@ and the CLI) but disabled with the reason, never hidden.
 
 ---
 
-## 6. Source contract (`plugins.base.Source`)
+## 6. Source contract (`sources.base.Source`)
 
 ```
 class Source:

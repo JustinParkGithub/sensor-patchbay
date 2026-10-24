@@ -14,8 +14,8 @@ HandLandmarkerResult = vision.HandLandmarkerResult
 VisionRunningMode = vision.RunningMode
 
 # Resolved from this file, not the cwd, so the script runs from anywhere and
-# plugins/cv_hands.py can import this module.
-MODEL_PATH = Path(__file__).resolve().parent.parent / "task" / "hand_landmarker.task"
+# sources/cv/ can import this module.
+MODEL_PATH = Path(__file__).resolve().parent / "hand_landmarker.task"
 
 # Tasks API — no mp.solutions, no mp.framework needed
 HAND_CONNECTIONS = vision.HandLandmarksConnections.HAND_CONNECTIONS
