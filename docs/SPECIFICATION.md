@@ -170,15 +170,16 @@ dict key), and the reported id always agree — including for a second board.
 ### 5.2 Registration & discovery
 - `@register_source` / `@register_sink` register a class under `_type_key(cls)`
   (its `type`, falling back to `id`).
-- `discover(extra_dirs=None)` imports, each in its own `try/except`:
-  1. every module in the `plugins/` package (sources),
-  2. every module in the `sinks/` package (sinks),
-  3. every top-level `*.py` (not starting with `_`) in each **extension
-     directory**: `<repo>/extensions/`, every path in the `PATCHBAY_EXT_PATH`
-     environment variable (`os.pathsep`-separated), and every `extra_dirs` entry
-     (the `--ext` flag). Extension files are imported by path — no package,
-     no install step.
-- A module that raises on import is skipped silently; it simply never registers.
+- A plugin is a **module folder** (§5.6) named after its `type`: `sources/<type>/`
+  or `sinks/<type>/`, or a folder in an **extension directory**. Extension
+  directories are every path in the `PATCHBAY_EXT_PATH` environment variable
+  (`os.pathsep`-separated) plus every `--ext` entry.
+- `discover(modules=None)` imports each enabled module (as returned by
+  `engine.modules.ensure`, §5.6; default: every module found), each in its own
+  `try/except`. Repo modules are imported as `sources.<type>` / `sinks.<type>`;
+  extension folders are imported by path as packages.
+- A module that raises on import is reported and skipped; it never registers. A
+  folder whose name matches no registered `type` of its kind is reported.
 
 ### 5.3 Availability
 A plugin **MUST** import its optional third-party dependencies lazily (inside
@@ -204,6 +205,42 @@ and the CLI) but disabled with the reason, never hidden.
   (CLI) are coerced; already-typed inputs (JSON) are trusted unless the target is
   `str`; a coercion that raises falls back to the raw value.
 - `build_spec(registry, "type:k=v,k2=v2")` parses a CLI spec, then calls `build`.
+
+### 5.6 Modules & dependencies (`engine.modules`)
+Package management is declarative: the enabled module folders define the
+environment, and a sync makes the installed packages match them **exactly**.
+
+- **Manifest.** Each module folder **MUST** contain `__init__.py` and
+  `module.toml`. A folder without `module.toml` is skipped with a warning.
+  Manifest keys, all optional (unknown keys are warned about and ignored):
+
+  | key | type | meaning |
+  |---|---|---|
+  | `kind` | `"source"`\|`"sink"` | implied by `sources/`/`sinks/`; **required** in extension dirs |
+  | `python` | `[str]` | PEP 508 requirement strings (markers allowed) |
+  | `depends` | `[str]` | module types whose *code* this one imports |
+  | `system` | `[str]` | setup pip can't perform; printed, never executed |
+  | `assets` | `[{file, url, sha256}]` | files fetched into the module folder |
+
+- **Config.** `patchbay.toml` at the repo root, with all keys optional: `python`
+  (core requirements, `["uv"]`), `disable` (module types to exclude), and
+  `autostart` (`"type[:k=v,…]"` specs added on start; empty by default).
+- **Resolution.** Enabled = found − `disable`. Then any module whose `depends` are
+  not all enabled is removed, repeatedly, until the set is stable. Module names
+  are unique across all directories, and the first one found wins.
+- **Lock.** The requirement inputs are core `python` plus each enabled module's
+  `python`, one input file per module, so the lock's `# via` lines name the module.
+  They are hashed together with the minimum Python version (3.11). If
+  `patchbay.lock`'s first line `# patchbay-inputs: <hash>` differs, or on
+  `--upgrade`, the inputs are re-resolved with `uv pip compile --universal`. That
+  run keeps existing pins as preferences unless upgrading. A resolution failure
+  leaves the old lock and environment untouched.
+- **Sync.** `uv pip sync patchbay.lock` runs against the running interpreter. It
+  is exact: packages absent from the lock are uninstalled. Then each enabled
+  module's assets are downloaded if they are missing or fail the sha256 check.
+- **Failure modes are non-fatal.** If uv is missing, the sync fails, or `--no-sync`
+  is given, the engine still starts with whatever is installed. Plugins whose
+  packages are missing then show as unavailable (§5.3).
 
 ---
 
@@ -358,7 +395,10 @@ is also running.
 
 ## 11. Entry point (`run.py`)
 
-Runs discovery, then either a one-shot mode (`--list-sources`, `--list-sinks`,
+Requires Python ≥ 3.11. Runs `engine.modules.ensure` (§5.6; `--no-sync` skips
+the environment step, `--upgrade` forces re-resolution, and `--sync` syncs,
+prints every enabled module's `system` notes and exits), then discovery, then
+either a one-shot mode (`--list-sources`, `--list-sinks`,
 `--list-ports`, `--selftest`) or the engine. Source/sink selection:
 
 - no default source or sink: the engine comes up empty and you add modules live
@@ -368,10 +408,14 @@ Runs discovery, then either a one-shot mode (`--list-sources`, `--list-sinks`,
 - `--dry-run` pre-loads the logging-only sink (shorthand for `--sink dryrun`) and
   `--sink TYPE[:k=v]` (repeatable) pre-loads registered sink plugins (e.g.
   `--sink hid` for the real mouse + keyboard).
+- `patchbay.toml`'s `autostart` specs are appended to the matching list, by
+  looking up each spec's type among the registered sources and sinks. Unknown or
+  disabled types are reported and skipped. `--no-autostart` ignores the list for
+  that run.
 
 Front-end selection: web UI (default), `--cli` (web UI + console), `--no-ui`
 (no server; with `--cli`, console only; without, a headless appliance loop).
-`--ext DIR` (repeatable) adds extension directories. `--rate HZ` sets the tick
+`--ext DIR` (repeatable) adds extension directories of module folders. `--rate HZ` sets the tick
 rate; `--preset NAME` the startup preset; `--host`/`--port` the bind address.
 
 `--selftest` is the CI check: mock source → dry-run sink for 2 s, asserting the
@@ -388,8 +432,9 @@ The project is layered so the routing core can run on a constrained target
   `engine/nodes.py`, `engine/graph.py`, `engine/registry.py`, the `Source`/`Sink`
   contracts, and `EngineLoop.step`. No `numpy`, no third-party imports.
 - **Host-only (PC / full CPython):** `server.py`, `ui/`, the `pynput` HID sink,
-  the `pyjoycon` source. These are optional front-ends and I/O adapters, not part
-  of the routing core.
+  the `pyjoycon` source, and `engine/modules.py` (package management: `tomllib`,
+  `subprocess`, uv). These are optional front-ends and I/O adapters, not part of
+  the routing core.
 - **Threads are optional.** A target without usable threads omits
   `EngineLoop.start()` and instead calls `engine.step(dt)` from its own real-time
   loop, driving on-device sources/sinks written against the same contracts. A

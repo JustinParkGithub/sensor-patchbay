@@ -1,0 +1,2 @@
+# Synthetic Joy-Con stand-in (oscillators) — standard library only.
+depends = ["joycon"]   # reuses sources.joycon's port list

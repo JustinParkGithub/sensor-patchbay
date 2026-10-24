@@ -1,0 +1,2 @@
+# Logging-only stand-in for the mouse/keyboard sink — standard library only.
+depends = ["hid"]   # subclasses sinks.hid.MouseKeyboardSink

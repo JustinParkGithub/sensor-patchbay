@@ -1,0 +1,6 @@
+# Arduino Nano + BMI160 IMU over USB serial; sketch in firmware/.
+python = ["pyserial>=3.5"]
+system = [
+  "flash firmware/bmi160_nano/bmi160_nano.ino (needs the BMI160-Arduino library)",
+  "Linux: your user in the `dialout` group for serial access",
+]

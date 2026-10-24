@@ -1,0 +1,19 @@
+# patchbay.toml — the whole rig, declared (think NixOS configuration.nix).
+#
+# Every module folder under sources/ and sinks/ is enabled unless disabled here;
+# each one's module.toml says what it needs. On start, `python run.py` makes the
+# environment match exactly: it installs what enabled modules need and removes
+# everything else (see engine/modules.py). Edit, re-run, done.
+
+# Packages the core itself needs. The engine + web UI are standard library only;
+# uv is listed so the sync never uninstalls the tool doing the syncing.
+python = ["uv"]
+
+# Module types to leave out entirely: never imported, and their packages removed.
+# e.g. disable = ["cv"]   # skips mediapipe + opencv
+disable = []
+
+# Modules to add on start, in --source/--sink spec form "type[:k=v,...]".
+# Nothing autostarts by default — add modules live from the UI or the console.
+# e.g. autostart = ["bmi160:port=/dev/ttyACM0", "hid"]
+autostart = []

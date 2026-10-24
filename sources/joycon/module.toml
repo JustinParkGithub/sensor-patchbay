@@ -1,0 +1,10 @@
+# Nintendo Switch Joy-Con (R) over Bluetooth HID.
+python = [
+  "joycon-python>=0.2.4",   # imported as `pyjoycon`; declares no deps of its own, so:
+  "hidapi>=0.14.0",         #   its HID backend
+  "pyglm>=2.7",             #   imported by pyjoycon.gyro at package import
+]
+system = [
+  "pair the Joy-Con from the OS Bluetooth settings first (hold the rail sync button)",
+  "Linux: udev rule for hidraw access, and stop `joycond` if it grabs the device (see README)",
+]

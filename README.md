@@ -9,23 +9,25 @@ plugins you pick from a menu, add live, and extend with one file.
 
 You wire it together in a browser-based **patch panel**, or, on a headless board,
 from an on-device **CLI console** — two front-ends over one engine. It runs
-entirely offline and saves presets as plain JSON.
+offline (once its modules are installed) and saves presets as plain JSON.
 
 ```
-Joy-Con (R)  ──BT───►  sources/joycon/       ─┐
-Nano + BMI160 ──USB──► sources/bmi160/  ┤                                 ┌─► sinks/hid/ ──► OS
-your sensor  ──────►   extensions/*.py            ├─► engine (bus + graph + nodes) ─┤
-                                                  ┘        ▲          ▲             └─► extensions/*.py ──────► GPIO / …
-                                                     fixed 120 Hz  presets/*.json
-                                                           │
-                                     ui/ (patch panel)  +  control.py (CLI console)  — same engine, two editors
+Joy-Con (R)  ──BT───►  sources/joycon/    ─┐
+Nano + BMI160 ──USB──► sources/bmi160/    ┤                                 ┌─► sinks/hid/ ──────► OS
+your sensor  ──────►   sources/<yours>/   ├─► engine (bus + graph + nodes) ─┤
+                                          ┘        ▲          ▲             └─► sinks/gpio/, … ──► GPIO / …
+                                             fixed 120 Hz  presets/*.json
+                                                   │
+                             ui/ (patch panel)  +  control.py (CLI console)  — same engine, two editors
 ```
 
 Every source and sink is a **plugin** with a `type` (the menu / CLI name) and an
 `id` (the bus namespace its ports live under). They're chosen at runtime — a
 dropdown in the GUI, `add source|sink` in the console, or `--source`/`--sink` on
-the command line — and a new one is a single file dropped in `extensions/`, no
-edits to `run.py`, the engine, or the UI. See **Choosing sources & sinks** and
+the command line — and a new one is a single folder dropped in `sources/` or
+`sinks/`, no edits to `run.py`, the engine, or the UI. Each module declares the
+Python packages it needs, and the environment is kept to exactly that set (see
+**Modules & dependencies**). See **Choosing sources & sinks** and
 **Extending it**, and the deeper [`docs/`](docs) (an informal
 [overview](docs/OVERVIEW.md) and a formal [specification](docs/SPECIFICATION.md)).
 
@@ -35,9 +37,11 @@ edits to `run.py`, the engine, or the UI. See **Choosing sources & sinks** and
 
 ```bash
 cd sensor-patchbay
-python -m pip install -r requirements.txt        # only needed for the real Joy-Con + real mouse/keyboard
+python3.12 -m venv .venv && .venv/bin/pip install uv   # any Python 3.11+, plus uv
+source .venv/bin/activate
 
-python run.py                                     # start empty; open the UI and add modules live
+python run.py                                     # installs every module's packages on first run,
+                                                  # then starts empty; add modules live from the UI
 #   open http://127.0.0.1:8420
 
 python run.py --mock --dry-run                    # no hardware, no real input events — just explore
@@ -61,12 +65,70 @@ modules so a rig comes up ready; anything they do can also be done live in the U
 | `--list-sources` / `--list-sinks` | list what's registered and its constructor args, then exit |
 | `--cli` | also start the interactive control console (reconfigure live) |
 | `--no-ui` | don't start the web server (headless board / appliance) |
-| `--ext DIR` | also load extension plugins from `DIR` (repeatable) |
+| `--ext DIR` | also load module folders from `DIR` (repeatable) |
+| `--sync` | make the environment match the enabled modules, print their system-setup notes, exit |
+| `--upgrade` | re-resolve every module's packages to the newest versions, then sync |
+| `--no-sync` | don't check or change installed packages this run |
+| `--no-autostart` | ignore `patchbay.toml`'s `autostart` list this run |
 | `--selftest` | headless: run mock → dry-run for 2 s, assert, exit |
 | `--host` / `--port` | bind address for the UI (default `127.0.0.1:8420`) |
 
 You never *need* `--source`/`--sink`: it's usually easier to add modules live from
-the GUI dropdown or the console (below). The flags are for scripting a fixed rig.
+the GUI dropdown or the console (below). The flags are for scripting a fixed rig —
+or list the modules in `patchbay.toml`'s `autostart` (below) to have them added on
+every start.
+
+---
+
+## Modules & dependencies
+
+The setup is declarative, after NixOS: each module says what it needs, the module
+folders on disk are the configuration, and the environment is made to match it
+exactly.
+
+```
+sources/bmi160/
+  __init__.py      # the plugin
+  module.toml      # what it needs
+  firmware/        # anything else that belongs to it
+```
+
+```toml
+# sources/bmi160/module.toml
+python  = ["pyserial>=3.5"]                        # pip requirement strings (markers ok)
+depends = []                                       # modules whose code this one imports
+system  = ["Linux: your user in the `dialout` group"]   # printed, not managed
+
+[[assets]]                                         # downloaded into the folder, sha256-checked
+file = "model.task"
+url = "https://…"
+sha256 = "…"
+```
+
+On every start, `run.py` collects the `python` lists of all enabled modules. If
+they changed, it re-resolves them into **`patchbay.lock`** (with `uv pip compile
+--universal`, so one committed lock works on macOS, Linux and a Pi). It then runs
+`uv pip sync`, which installs what's missing and **uninstalls anything no enabled
+module needs**. When nothing changed this takes well under a second and needs no
+network. Shared packages are counted once: `pyserial` stays installed while
+either `bmi160` or `bend4` is enabled.
+
+**`patchbay.toml`** is the rig-wide config, and everything in it is optional:
+
+```toml
+python    = ["uv"]          # core packages (uv itself, so the sync keeps it)
+disable   = ["cv"]          # never imported, and its packages are removed
+autostart = ["bmi160:port=/dev/ttyACM0", "hid"]   # added on start; empty by default
+```
+
+Nothing autostarts by default. A module whose `depends` is disabled is disabled
+too (`mock` needs `joycon`, `dryrun` needs `hid`). What pip can't do — pairing,
+udev rules, serial groups, macOS Accessibility and camera permissions — is listed
+in each module's `system` notes. `python run.py --sync` prints them.
+
+All modules share one environment because they run in one process, so two
+modules that pin incompatible versions of a package can't both be enabled. The
+resolver names both modules' files when that happens.
 
 ---
 
@@ -123,8 +185,7 @@ board, upload.
 **Run it**:
 
 ```bash
-python -m pip install -r requirements.txt      # adds pyserial
-python run.py --source bmi160 --preset bmi160-mouse
+python run.py --source bmi160 --preset bmi160-mouse   # pyserial comes from its module.toml
 #   port is auto-detected; if that fails, or you have more than one board
 #   plugged in, be explicit:
 python run.py --source bmi160:port=/dev/ttyACM0     # Linux
@@ -157,20 +218,20 @@ with an `invert` node in the patch panel rather than editing the plugin.
 tip as `hand.x`/`hand.y`, a thumb–index `hand.pinch`, and all 21 raw MediaPipe
 hand landmarks grouped by finger — `wrist.x`, `thumb_tip.y`, `index_mcp.z`, ...
 (-1..1, x mirrored, y up, z + toward the camera). Its card shows a small live
-camera preview with the landmarks drawn on. Its dependencies are optional and kept out of the core install:
+camera preview with the landmarks drawn on. Its `module.toml` declares
+`mediapipe` + OpenCV and the MediaPipe model files, so the sync installs and
+downloads them. If you don't want them, add `disable = ["cv"]` to `patchbay.toml`.
 
 ```bash
-python -m pip install -r requirements-cv.txt   # opencv-python + mediapipe
-# plus the model file at task/hand_landmarker.task (from the MediaPipe docs)
 python run.py --source cv                      # or add "Hand tracker (camera)" from the UI
 python run.py --source cv:camera=1
 ```
 
-Without those packages it still appears in the *add source* picker, greyed out
-with the reason. On macOS, grant your terminal camera access in System Settings ›
-Privacy the first time. `tracker_templates/` holds the standalone OpenCV
-prototype scripts the plugin was built from; `cv_hands` imports the landmarker
-setup from `hand_tracker.py`, but the scripts themselves aren't run by the engine.
+On macOS, grant your terminal camera access in System Settings › Privacy the
+first time. `sources/cv/hand_tracker.py` and `gesture_tracker.py` are the
+standalone OpenCV prototype scripts the module was built from. The module imports
+its landmarker setup from `hand_tracker.py`, but the engine never runs the scripts
+themselves.
 
 ---
 
@@ -319,11 +380,14 @@ convention as `joycon` above; no buttons or stick — it's a bare IMU.
 
 ## Extending it
 
-Adding a source or sink is **one new file** — no edits to `run.py`, the engine, or
-the UI. Drop it in [`extensions/`](extensions) and it shows up in the GUI dropdown,
+Adding a source or sink is **one new folder**, with no edits to `run.py`, the
+engine, or the UI. Create `sinks/<type>/` (or `sources/<type>/`) containing an
+`__init__.py` and a `module.toml`. The folder name must match the class's `type`.
+On the next start its packages are installed, and it shows up in the GUI dropdown,
 the console's `add` command, `--list-sources`/`--list-sinks`, and the
-`--source`/`--sink` flags. (You can also `--ext DIR` or set `PATCHBAY_EXT_PATH` to
-load from anywhere.)
+`--source`/`--sink` flags. To keep modules outside the repo, point `--ext DIR` or
+`PATCHBAY_EXT_PATH` at a directory of module folders. Those manifests also need
+`kind = "source"` or `"sink"`.
 
 A plugin declares two names: **`type`** — the registry key you pick from the menu —
 and **`id`** — the bus namespace its ports live under (`type/port` on the wire).
@@ -358,13 +422,15 @@ class MidiSink(Sink):
     def release_all(self): ...
 ```
 
-Save it as `extensions/midi_sink.py` and it's immediately selectable — from the
-dropdown, `add sink midi port_name=…`, or `--sink midi:port_name=IAC Driver`.
+Save it as `sinks/midi/__init__.py` next to a `sinks/midi/module.toml` containing
+`python = ["python-rtmidi"]`. On the next start, rtmidi is installed and the sink
+is selectable from the dropdown, with `add sink midi port_name=…`, or with
+`--sink midi:port_name=IAC Driver`.
 `ARGS` is what the GUI builds its little form from and what the CLI coerces values
 against (its `type` picks the input widget). Import your third-party dependency
 **lazily** (inside `__init__`/`start`, never at module top) and add `available()`
-so a machine without the library still lists it politely instead of failing to
-load.
+so a machine where the library didn't install (wrong platform, `--no-sync`) still
+lists it politely instead of failing to load.
 
 There's a complete, working example already in the tree:
 [`sinks/gpio/`](sinks/gpio/) drives
@@ -397,15 +463,15 @@ to copy.
 ## Layout
 
 ```
-engine/     signals.py  nodes.py  graph.py  loop.py  registry.py   # portable core: bus, transforms, routing, tick, plugin registry
-plugins/    base.py  joycon_r.py  mock.py  arduino_bmi160.py  cv_hands.py   # sources
-sinks/      base.py  mouse_keyboard.py  null.py            # sinks
-extensions/ README.md  example_gpio_sink.py                # drop-in plugins — your own sources/sinks go here
+engine/     signals.py nodes.py graph.py loop.py registry.py   # portable core: bus, transforms, routing, tick, plugin registry
+            modules.py                                     # module manifests, patchbay.lock, environment sync
+sources/    base.py  joycon/ mock/ bmi160/ bend4/ cv/      # one folder per source type (code + module.toml + firmware/assets)
+sinks/      base.py  hid/ dryrun/ gpio/                    # one folder per sink type
+patchbay.toml                                              # rig config: disable / autostart / core packages
+patchbay.lock                                              # generated: exact package set for the enabled modules
 ui/         src/ (React + TS)  dist/ (committed build)    # patch panel — see ui/README.md
-presets/    mouse.json  keyboard.json  bmi160-mouse.json
-firmware/   bmi160_nano/bmi160_nano.ino                    # Arduino Nano + BMI160 sketch
+presets/    mouse.json  keyboard.json  bmi160-mouse.json  bend4-mouse-keyboard.json
 docs/       OVERVIEW.md  SPECIFICATION.md                  # informal + formal docs
-tracker_templates/  standalone OpenCV/MediaPipe prototypes  # not loaded by the engine
 control.py  interactive CLI console (--cli)                # reconfigure a headless engine
 server.py   http.server + Server-Sent Events + REST       # stdlib only
 run.py      entrypoint

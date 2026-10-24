@@ -11,9 +11,9 @@ another registered source, added like any other — from the GUI's *add source*
 picker, ``--source cv:camera=1``, or the ``--cli`` console's ``add`` — and
 removed the same way.
 
-Needs the optional extras in ``requirements-cv.txt`` (``opencv-python`` +
-``mediapipe``) and the model file at ``task/hand_landmarker.task`` (override
-with ``model=``). Both libraries are imported lazily, so the plugin registers
+Needs ``mediapipe`` + OpenCV and the model file ``hand_landmarker.task`` next to
+this file (override with ``model=``) — all declared in ``module.toml``, so the
+start-up sync installs and fetches them. Both libraries are imported lazily, so the plugin registers
 without them and :meth:`HandTrackerCV.available` greys it out in the picker with
 the reason instead.
 """
@@ -79,7 +79,7 @@ class HandTrackerCV(Source):
             import cv2  # noqa: F401
             import mediapipe  # noqa: F401
         except Exception as e:
-            return False, f"needs opencv-python + mediapipe — pip install -r requirements-cv.txt ({e})"
+            return False, f"needs opencv + mediapipe — run `python run.py --sync` ({e})"
         return True
     ARGS = {
         "camera": {"default": 0, "type": int, "help": "OpenCV camera index"},
