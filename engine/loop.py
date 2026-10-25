@@ -25,30 +25,48 @@ from .signals import ModuleSpec, PortSpec, EVENT
 
 
 class SysSink:
-    """Built-in sink. Currently one port: ``preset.cycle`` — a rising edge asks the
-    loop to load the next preset. Lets you map ``joycon/btn.home -> sys/preset.cycle``.
+    """Built-in sink. Each port acts on a rising edge, which the loop services
+    after the sinks are driven:
+
+    - ``preset.cycle`` loads the next preset — map ``joycon/btn.home -> sys/preset.cycle``.
+    - ``panic.toggle`` flips panic, like the UI's PANIC button.
+
+    Unlike every other sink it keeps receiving its inputs while panic is on —
+    it drives no outputs, and ``panic.toggle`` must be able to turn panic off.
     """
     type = "sys"
     id = "sys"
 
     def __init__(self):
-        self._prev = 0.0
+        self._prev = {"preset.cycle": 0.0, "panic.toggle": 0.0}
         self.pending = False
+        self.panic_pending = False
 
     def module(self):
         return ModuleSpec("sys", "system", "sink", [
             PortSpec("preset.cycle", EVENT, "preset.cycle", "presets",
                      hint="rising edge loads the next preset file"),
+            PortSpec("panic.toggle", EVENT, "panic.toggle", "safety",
+                     hint="rising edge toggles panic (all outputs off)"),
         ])
 
+    def _rose(self, values, port):
+        v = values.get(port, 0.0)
+        rose = v >= 0.5 and self._prev[port] < 0.5
+        self._prev[port] = v
+        return rose
+
     def apply(self, values, dt):
-        v = values.get("preset.cycle", 0.0)
-        if v >= 0.5 and self._prev < 0.5:
+        if self._rose(values, "preset.cycle"):
             self.pending = True
-        self._prev = v
+        if self._rose(values, "panic.toggle"):
+            self.panic_pending = True
 
     def release_all(self):
-        self._prev = 0.0
+        # Nothing is held. The edge memory must survive a panic: set_panic()
+        # calls this, and forgetting a still-held button would read as a
+        # fresh press on the next tick and toggle panic straight back.
+        pass
 
     def start(self):  # noqa: D401 - symmetry with real sinks
         pass
@@ -148,12 +166,17 @@ class EngineLoop:
             by_sink.setdefault(sid, {})[port] = val
 
         for sid, sink in sinks:
-            payload = {} if panic else by_sink.get(sid, {})
+            # sys drives no outputs, and must still see panic.toggle to end a panic
+            payload = {} if panic and sink is not self.sys else by_sink.get(sid, {})
             try:
                 sink.apply(payload, dt)
             except Exception:
                 traceback.print_exc()
 
+        if self.sys.panic_pending:
+            self.sys.panic_pending = False
+            self.set_panic(not panic)
+            panic = self.panic
         if self.sys.pending:
             self.sys.pending = False
             self._cycle_preset()

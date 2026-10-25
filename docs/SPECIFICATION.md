@@ -298,9 +298,16 @@ class Sink:
   signal "any id here is accepted"; set `accepts_any = True`.
 
 ### 7.1 Built-in `sys` sink
-`EngineLoop` always injects a non-removable `sys` sink. Port `preset.cycle`
-(`event`): a rising edge loads the next preset file. It cannot be added or removed
-via any interface.
+`EngineLoop` always injects a non-removable `sys` sink. Both ports are `event`
+and act on a rising edge:
+
+- `preset.cycle` loads the next preset file.
+- `panic.toggle` flips panic, exactly like `set_panic(not panic)`.
+
+Unlike every other sink, `sys` keeps receiving its inputs while panic is on, so
+`panic.toggle` can end a panic. It drives no outputs, and its `release_all` keeps
+its edge memory, so a button still held when panic engages is not read as a
+second press. It cannot be added or removed via any interface.
 
 ---
 
@@ -310,8 +317,8 @@ Owns sources, sinks, the live graph, presets, and the shared snapshot.
 
 ### 8.1 The tick — `step(dt, clock=None)`
 One tick, in order: read every source into `src_vals` → `graph.tick` → group by
-sink namespace → `sink.apply` (empty dict when `panic`) → service a pending preset
-cycle → write the snapshot. `step` takes a consistent view of sources/sinks/graph
+sink namespace → `sink.apply` (empty dict when `panic`, except for `sys`) → service
+a pending panic toggle, then a pending preset cycle → write the snapshot. `step` takes a consistent view of sources/sinks/graph
 under the lock, so concurrent add/remove is safe.
 
 `step` has **no dependency on threads**. `start()` runs it on a background thread
