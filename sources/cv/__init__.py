@@ -1,6 +1,6 @@
 """Webcam hand tracking (MediaPipe), as a patchbay source.
 
-The MediaPipe ``HandLandmarker`` from ``tracker_templates/hand_tracker.py`` (its
+The MediaPipe ``HandLandmarker`` from ``hand_tracker.py`` (next to this file; its
 options, model path and landmark helpers are reused from there), wrapped in the
 ``Source`` contract: the camera and the model run on their own thread, and
 ``read()`` just hands back the latest flat dict of ports — all 21 raw landmarks
@@ -11,9 +11,9 @@ another registered source, added like any other — from the GUI's *add source*
 picker, ``--source cv:camera=1``, or the ``--cli`` console's ``add`` — and
 removed the same way.
 
-Needs the optional extras in ``requirements-cv.txt`` (``opencv-python`` +
-``mediapipe``) and the model file at ``task/hand_landmarker.task`` (override
-with ``model=``). Both libraries are imported lazily, so the plugin registers
+Needs ``mediapipe`` + OpenCV and the model file ``hand_landmarker.task`` next to
+this file (override with ``model=``) — all declared in ``module.toml``, so the
+start-up sync installs and fetches them. Both libraries are imported lazily, so the plugin registers
 without them and :meth:`HandTrackerCV.available` greys it out in the picker with
 the reason instead.
 """
@@ -27,11 +27,11 @@ from pathlib import Path
 
 from engine.registry import register_source
 from engine.signals import EVENT, SCALAR, PortSpec
-from plugins.base import Source
+from sources.base import Source
 
-# Same path as tracker_templates.hand_tracker.MODEL_PATH; duplicated so this module
+# Same path as hand_tracker.MODEL_PATH; duplicated so this module
 # doesn't import cv2/mediapipe (via hand_tracker) before available() has checked them.
-DEFAULT_MODEL = Path(__file__).resolve().parent.parent / "task" / "hand_landmarker.task"
+DEFAULT_MODEL = Path(__file__).resolve().parent / "hand_landmarker.task"
 
 # Camera preview shown in the module card: width in pixels, max frame rate, and
 # the landmark dots (BGR pink/purple, small enough for the scaled-down frame).
@@ -79,7 +79,7 @@ class HandTrackerCV(Source):
             import cv2  # noqa: F401
             import mediapipe  # noqa: F401
         except Exception as e:
-            return False, f"needs opencv-python + mediapipe — pip install -r requirements-cv.txt ({e})"
+            return False, f"needs opencv + mediapipe — run `python run.py --sync` ({e})"
         return True
     ARGS = {
         "camera": {"default": 0, "type": int, "help": "OpenCV camera index"},
@@ -90,7 +90,7 @@ class HandTrackerCV(Source):
     def __init__(self, camera=0, model=str(DEFAULT_MODEL)):
         import cv2  # lazy: optional deps (see available())
         import mediapipe as mp
-        from tracker_templates import hand_tracker
+        from . import hand_tracker
 
         self._cv2, self._mp, self._ht = cv2, mp, hand_tracker
         self._lock = threading.Lock()

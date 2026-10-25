@@ -63,9 +63,26 @@ the running app shows them as a menu:
 - In the console it's `plugins` to see the menu and `add source bmi160
   port=/dev/ttyACM0` to add one.
 
-Plugins that need a library you don't have (say `pynput` for the mouse, or a real
-Joy-Con) still show up in the menu — greyed out, with a note telling you what's
-missing — instead of silently vanishing.
+Each plugin's folder declares the libraries it needs, and the app installs them
+on start. A plugin that still can't run, for example because there's no Joy-Con
+paired or it's the Pi-only GPIO sink on a laptop, shows up in the menu greyed
+out, with a note explaining why, instead of silently vanishing.
+
+## What gets installed (declarative, NixOS-style)
+
+Every source and sink is a folder like `sources/bmi160/`. Next to its code is a
+`module.toml` that lists the Python packages it needs (`python = ["pyserial"]`),
+any files to download (the camera tracker's model), and setup steps pip can't do
+for you (pairing, permissions). The folders on disk *are* the configuration.
+`patchbay.toml` can `disable` a module, or `autostart` some. Nothing starts on its
+own by default.
+
+On every start the app compares the installed packages with that declaration and
+makes them match **exactly**. Missing packages are installed, and packages no
+enabled module needs are removed, so nothing is left over. The exact versions are
+pinned in a committed `patchbay.lock`, so every machine gets the same set. When
+nothing changed, this check is instant and needs no internet. To strip the camera
+tracker's large libraries from a machine, add `disable = ["cv"]` and restart.
 
 ## Adding your own thing (an "extension")
 
@@ -73,22 +90,24 @@ This is the whole point of the design: **adding hardware is one file, no core
 edits.** Want to send signals to a drone's flight controller, or blink an LED on a
 Pi, or read a new sensor?
 
-1. Write one `.py` file. A sink subclasses `Sink` and implements `apply(values,
-   dt)`; a source subclasses `Source` and implements `read()`. Give it a `type`
-   (its menu name), an `id` (the name its jacks live under), and an `ARGS` dict of
-   its options.
-2. Drop it in the [`extensions/`](../extensions) folder.
-3. Start the app. It's in the dropdown.
+1. Make a folder named after your plugin: `sinks/drone/` or `sources/mysensor/`.
+2. Put the code in its `__init__.py`. A sink subclasses `Sink` and implements
+   `apply(values, dt)`; a source subclasses `Source` and implements `read()`.
+   Give it a `type` (its menu name, the same as the folder name), an `id` (the
+   name its jacks live under), and an `ARGS` dict of its options.
+3. Add a `module.toml` listing the packages it needs, e.g.
+   `python = ["pymavlink"]`.
+4. Start the app. Its packages get installed, and it appears in the dropdown.
 
 There's a complete, working example in
-[`extensions/example_gpio_sink.py`](../extensions/example_gpio_sink.py): it drives
+[`sinks/gpio/`](../sinks/gpio/): it drives
 Raspberry Pi GPIO pins — PWM channels for servos or a drone's ESCs, digital pins
 for relays — and, cleverly, falls back to just *printing* what it would do when
 you're building the patch on a laptop with no Pi attached. Copy it as your
 starting point.
 
 Keep your heavy `import` inside `__init__`/`start` (not at the top of the file) and
-add an `available()` method, and your extension will list itself politely even on a
+add an `available()` method. Then your plugin lists itself politely even on a
 machine that can't run it yet.
 
 ## "Runs on a microcontroller too"
@@ -111,10 +130,10 @@ the instant a mapping does something you didn't expect.
 ## Where things live
 
 ```
-engine/     the brain: signals · nodes · graph · loop · registry   (portable core)
-plugins/    sources   (joycon, mock, bmi160, cv camera hand tracker)
-sinks/      sinks     (mouse+keyboard, dry-run)
-extensions/ drop-in plugins — your stuff goes here (example: Pi GPIO)
+engine/     the brain: signals · nodes · graph · loop · registry   (portable core) + modules (installs)
+sources/    one folder per source (joycon, mock, bmi160, bend4, cv camera hand tracker)
+sinks/      one folder per sink   (hid mouse+keyboard, dryrun, gpio) — your stuff goes in these two
+patchbay.toml / patchbay.lock   what's enabled / exactly which packages that means
 ui/         the browser patch panel (React + TS; built dist/ is committed)
 presets/    saved graphs, plain JSON
 control.py  the CLI console

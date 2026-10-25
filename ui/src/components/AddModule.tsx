@@ -28,7 +28,7 @@ function toArgs(plugin: PluginInfo, draft: Draft): Record<string, unknown> {
 /**
  * The add-source / add-sink picker under each column. Built entirely from the
  * engine's plugin catalog (`GET /api/state` → `plugins`), so a new plugin or a
- * file dropped into `extensions/` shows up here with no UI change. Plugins whose
+ * module folder dropped into `sources/` or `sinks/` shows up here with no UI change. Plugins whose
  * optional dependency is missing stay listed but disabled, with the reason.
  */
 export function AddModule({ kind }: { kind: ModuleKind }) {

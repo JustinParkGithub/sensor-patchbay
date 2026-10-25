@@ -1,11 +1,11 @@
-// Arduino Nano + BMI160 (I2C) -> plugins/arduino_bmi160.py
+// Arduino Nano + BMI160 (I2C) -> sources/bmi160/
 //
 // Same library and the same BMI160.readGyro()/readAccelerometer() calls as
 // the tutorial this is adapted from:
 //   https://how2electronics.com/interfacing-bmi160-accelerometer-gyroscope-with-arduino/
 // The tutorial prints one human-readable reading a second; this streams raw
 // samples continuously as one CSV line each, which is what the Python side
-// (plugins/arduino_bmi160.py) expects:
+// (sources/bmi160/) expects:
 //
 //   ax,ay,az,gx,gy,gz\n
 //
@@ -30,7 +30,7 @@ void setup() {
     while (1);                  // halt; the host will see nothing but timeouts
   }
 
-  // Fixed, explicit full-scale ranges -- plugins/arduino_bmi160.py's
+  // Fixed, explicit full-scale ranges -- sources/bmi160/'s
   // ACCEL_LSB_PER_G / GYRO_LSB_PER_DPS constants assume exactly these.
   // Change both sides together if you need more range/resolution.
   BMI160.setAccelerometerRange(2);    // +/- 2 g

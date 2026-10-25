@@ -22,10 +22,11 @@ same board at once — a second instance is just given a suffixed id
 
 Discovery
 ---------
-:func:`discover` imports every module under ``plugins/`` and ``sinks/`` (and any
-extension directory) once, each in its own ``try/except`` so one plugin's missing
-dependency never blocks the others, which is enough for the ``@register_source`` /
-``@register_sink`` decorators to populate :data:`SOURCES` / :data:`SINKS`.
+:func:`discover` imports each enabled module folder (``sources/<type>/``,
+``sinks/<type>/``, extension dirs — see :mod:`engine.modules`) once, each in its
+own ``try/except`` so one module's failure never blocks the others, which is
+enough for the ``@register_source`` / ``@register_sink`` decorators to populate
+:data:`SOURCES` / :data:`SINKS`. The folder name must equal the class's ``type``.
 
 Availability
 ------------
@@ -42,7 +43,7 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import os
-import pkgutil
+import sys
 from pathlib import Path
 
 SOURCES: dict[str, type] = {}
@@ -65,65 +66,52 @@ def register_sink(cls):
 
 
 # --------------------------------------------------------------------- discovery
-def _extension_dirs() -> list[Path]:
-    """Extra directories of loose ``*.py`` extension modules to import.
+def extension_dirs() -> list[Path]:
+    """Directories of module folders kept outside the repo.
 
-    An "installed" extension is simply a ``.py`` file dropped into one of these:
-
-    * ``<repo>/extensions/`` (always scanned if present),
-    * every path in the ``PATCHBAY_EXT_PATH`` env var (os.pathsep-separated),
-    * anything passed to :func:`discover` via ``extra_dirs`` (the ``--ext`` flag).
+    The repo's own ``sources/`` and ``sinks/`` are the main drop-in folders; these
+    are scanned too: every path in the ``PATCHBAY_EXT_PATH`` env var
+    (os.pathsep-separated), plus whatever ``--ext`` passes to
+    :func:`engine.modules.find_modules`.
     """
-    dirs = []
-    repo_ext = Path(__file__).resolve().parent.parent / "extensions"
-    if repo_ext.is_dir():
-        dirs.append(repo_ext)
-    for raw in os.environ.get("PATCHBAY_EXT_PATH", "").split(os.pathsep):
-        if raw.strip():
-            dirs.append(Path(raw.strip()))
-    return dirs
+    return [Path(raw.strip()) for raw in os.environ.get("PATCHBAY_EXT_PATH", "").split(os.pathsep)
+            if raw.strip()]
 
 
-def _import_dir(directory: Path):
-    """Import every top-level ``*.py`` in *directory* by file path.
-
-    Used for extension folders that are not Python packages, so a user can add a
-    source/sink by copying one file in — no ``__init__.py``, no install step.
-    """
-    if not directory.is_dir():
+def _import_module(mod) -> None:
+    """Import one :class:`engine.modules.Module` so its decorators run."""
+    if not mod.external:
+        importlib.import_module(f"{mod.kind}s.{mod.name}")
         return
-    for path in sorted(directory.glob("*.py")):
-        if path.name.startswith("_"):
-            continue
-        mod_name = f"patchbay_ext_{path.stem}"
-        try:
-            spec = importlib.util.spec_from_file_location(mod_name, path)
-            if spec and spec.loader:
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)  # runs @register_* decorators
-        except Exception:
-            pass
+    # An out-of-repo folder isn't on sys.path; load it as a package by file path.
+    name = f"patchbay_ext_{mod.name}"
+    spec = importlib.util.spec_from_file_location(
+        name, mod.path / "__init__.py", submodule_search_locations=[str(mod.path)])
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
 
 
-def discover(extra_dirs: list | None = None):
-    """Import every plugin/sink/extension module so its decorators run.
+def discover(modules: list | None = None):
+    """Import each enabled module (from :func:`engine.modules.ensure`) so its
+    ``@register_*`` decorator runs. With no list, every module found on disk.
 
-    Safe to call more than once. A module that fails to import (missing optional
-    dependency, unsupported platform, ...) is skipped silently — it simply never
-    registers, and stays unavailable rather than fatal.
+    Safe to call more than once. A module that fails to import is reported and
+    skipped — it never registers, and stays out of the menus rather than fatal.
     """
-    import plugins as _plugins_pkg
-    import sinks as _sinks_pkg
-
-    for pkg in (_plugins_pkg, _sinks_pkg):
-        for _, modname, _ in pkgutil.iter_modules(pkg.__path__, pkg.__name__ + "."):
-            try:
-                importlib.import_module(modname)
-            except Exception:
-                pass
-
-    for directory in _extension_dirs() + [Path(d) for d in (extra_dirs or [])]:
-        _import_dir(directory)
+    if modules is None:
+        from engine.modules import find_modules
+        modules = find_modules()
+    for mod in modules:
+        registry = SOURCES if mod.kind == "source" else SINKS
+        try:
+            _import_module(mod)
+        except Exception as e:
+            print(f"[modules] {mod.name}: failed to import ({type(e).__name__}: {e})")
+            continue
+        if mod.name not in registry:
+            print(f"[modules] {mod.name}: folder name doesn't match any registered "
+                  f"{mod.kind} type (registered: {sorted(registry)})")
     return SOURCES, SINKS
 
 

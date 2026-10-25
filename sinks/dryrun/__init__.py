@@ -12,7 +12,7 @@ from __future__ import annotations
 import time
 
 from engine.registry import register_sink
-from sinks.mouse_keyboard import MouseKeyboardSink
+from sinks.hid import MouseKeyboardSink
 
 
 @register_sink

@@ -1,7 +1,7 @@
-"""Example extension: drive Raspberry Pi GPIO pins from routed signals.
+"""Raspberry Pi GPIO sink: drive pins from routed signals.
 
-This is a complete, working sink that lives entirely outside the core tree — it
-was "installed" just by being copied into ``extensions/``. It shows the two
+A complete, working example of an output module — the whole thing is this one
+folder, nothing in the engine knows about it. It shows the two
 things a real output extension needs: mapping the abstract bus ports onto real
 hardware, and degrading gracefully when the hardware library isn't present.
 

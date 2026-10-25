@@ -1,6 +1,6 @@
 """Nintendo Switch Joy-Con (R) over Bluetooth, via `joycon-python` (`pyjoycon`).
 
-Pairing is done at the OS level (see README); this plugin just opens the already
+Pairing is done at the OS level (see README.md in this folder); this plugin just opens the already
 paired HID device. If the library or the device is missing, construction raises —
 ``run.py`` catches that and falls back to the mock source so the rest of the
 pipeline still runs.
@@ -17,7 +17,7 @@ import time
 
 from engine.registry import register_source
 from engine.signals import PortSpec, SCALAR, EVENT
-from plugins.base import Source
+from sources.base import Source
 
 # Shared by the mock source so presets built against one work against the other.
 JOYCON_PORTS = [

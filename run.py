@@ -22,7 +22,14 @@ so a headless board can come up ready; nothing here can't also be done live.
     python run.py --cli           # web UI + an interactive console for reconfiguring live
     python run.py --no-ui --cli   # console only, no web server (headless board)
     python run.py --no-ui         # run the engine as an appliance (no UI, no console)
-    python run.py --ext ~/my-plugins   # also load extensions from a directory
+    python run.py --ext ~/my-plugins   # also load module folders from a directory
+
+    python run.py --sync          # make the environment match the modules, then exit
+    python run.py --upgrade       # same, but re-resolve every package to its newest version
+    python run.py --no-sync       # skip the environment check (fully offline, as-is)
+
+Modules listed in patchbay.toml's ``autostart`` are added on start (none by
+default); ``--no-autostart`` ignores that list for one run.
 
 Then open http://127.0.0.1:8420 in a browser on the same machine.
 """
@@ -35,6 +42,10 @@ import threading
 import time
 from pathlib import Path
 
+if sys.version_info < (3, 11):
+    sys.exit("sensor-patchbay needs Python 3.11+ (found %d.%d)" % sys.version_info[:2])
+
+from engine import modules
 from engine.graph import Graph
 from engine.loop import EngineLoop
 from engine.registry import (SINKS, SOURCES, build, describe,
@@ -127,7 +138,15 @@ def main():
     ap.add_argument("--list-sinks", action="store_true",
                     help="list registered sink plugins and their args, then exit")
     ap.add_argument("--ext", action="append", default=[], metavar="DIR",
-                    help="also import extension plugins from DIR (repeatable)")
+                    help="also load module folders from DIR (repeatable)")
+    ap.add_argument("--sync", action="store_true",
+                    help="sync the environment to the enabled modules, print setup notes, exit")
+    ap.add_argument("--upgrade", action="store_true",
+                    help="re-resolve every module's packages to the newest versions, then sync")
+    ap.add_argument("--no-sync", action="store_true",
+                    help="don't check or change installed packages this run")
+    ap.add_argument("--no-autostart", action="store_true",
+                    help="ignore patchbay.toml's autostart list this run")
     ap.add_argument("--cli", action="store_true",
                     help="start an interactive control console (reconfigure live)")
     ap.add_argument("--no-ui", action="store_true",
@@ -135,7 +154,12 @@ def main():
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
 
-    discover(extra_dirs=args.ext)  # populate SOURCES/SINKS from plugins/, sinks/, extensions/
+    # Make the environment match the declared modules, then import the enabled ones.
+    enabled = modules.ensure(args.ext, sync=not args.no_sync,
+                             upgrade=args.upgrade, verbose=args.sync)
+    if args.sync:
+        return
+    discover(enabled)  # populate SOURCES/SINKS
 
     if args.list_sources:
         return print(describe(SOURCES))
@@ -150,6 +174,15 @@ def main():
     # hardware live. The flags below are pure pre-load shorthands.
     source_specs = (["mock"] if args.mock else []) + list(args.source)
     sink_specs = (["dryrun"] if args.dry_run else []) + list(args.sink)
+    if not args.no_autostart:
+        for spec in modules.load_config().get("autostart", []):
+            type_name = spec.partition(":")[0].strip()
+            if type_name in SOURCES:
+                source_specs.append(spec)
+            elif type_name in SINKS:
+                sink_specs.append(spec)
+            else:
+                print(f"[autostart] no enabled module {type_name!r}; skipping '{spec}'")
     sources = build_extra(SOURCES, source_specs, "source")
     sinks = build_extra(SINKS, sink_specs, "sink")
 

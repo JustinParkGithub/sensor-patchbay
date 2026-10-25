@@ -5,7 +5,7 @@
 //
 //     raw2    raw3    raw4    raw5\n
 //
-// Pairs with plugins/arduino_bend4.py in the sensor-patchbay repo. Each sensor
+// Pairs with sources/bend4/ in the sensor-patchbay repo. Each sensor
 // is a variable resistor (flex sensor); wire it as a voltage divider into its
 // analog pin. Order on the wire is A2, A3, A4, A5 -> bend.0, bend.1, bend.2,
 // bend.3 in the plugin.
