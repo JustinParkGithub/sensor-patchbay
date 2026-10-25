@@ -14,7 +14,7 @@ from pathlib import Path
 from engine.nodes import NODE_SPECS
 from engine.registry import SINKS, SOURCES, catalog
 
-# The patch panel is a React + TypeScript app (ui/src) built by Vite. The build
+# The patch panel is a framework-free TypeScript app (ui/src) bundled by Vite. The build
 # output is committed, so serving it needs no Node toolchain at run time — see
 # ui/README.md. Rebuild with `cd ui && npm run build` after changing the UI.
 UI_DIST = Path(__file__).parent / "ui" / "dist"

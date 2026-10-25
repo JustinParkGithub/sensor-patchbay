@@ -1,7 +1,7 @@
 # ui — the patch panel
 
-React + TypeScript, bundled by Vite, served by `server.py` straight out of
-`dist/`. It talks to the engine over `fetch` (REST) and `EventSource` (live
+Plain TypeScript and the DOM — no UI framework — bundled by Vite, served by
+`server.py` straight out of `dist/`. It talks to the engine over `fetch` (REST) and `EventSource` (live
 state) and loads nothing from the internet.
 
 ## Running it
@@ -29,36 +29,48 @@ committing, or the served bundle won't match the source.
 
 ```
 src/
+  main.ts             builds the four top-level views, then starts the stores
   types.ts            the engine's wire format (mirrors engine/signals.py + graph.py)
   lib/
     api.ts            one typed function per REST endpoint
     ports.ts          port-id arithmetic, compatibility rules, value formatting
-  state/
-    ToastProvider     transient messages
-    LiveProvider      the /events stream, split into a raw frame + a status slice
-    PatchbayProvider  modules, graph, armed jack, selected cable, and every mutation
-    JackRegistry      jack id -> DOM nodes, for the two things that bypass React
-  hooks/
-    useMeters         paints jack readouts + bars from the live stream
-    useAnimationFrame per-frame callback with a stable loop
-    useCommitOnChange native `change` (not per-keystroke `input`) for number fields
-  components/         TopBar · PatchArea · Cables · Jack · Inspector · …
+    dom.ts            h() / svg() element builders, setChildren(), classes()
+  state/              singletons; each has subscribe()
+    patchbay.ts       modules, graph, armed jack, selected cable, and every mutation
+    live.ts           the /events stream, split into a raw frame + a status slice
+    jacks.ts          jack id -> DOM nodes, for meters, cables and jack classes
+    toast.ts          transient messages
+  components/         topBar · presetBar · statusBar · patchArea · moduleCard ·
+                      cables · meters · addModule · inspector · paramField · hint
 ```
 
-## Why parts of this are imperative
+## How the views work
 
-The engine pushes ~30 frames/s and the cables animate at 60fps. Two paths
-deliberately write the DOM instead of re-rendering:
+There is no framework and no virtual DOM. Each view is a function that builds
+its elements once, subscribes to the stores it needs, and patches only what
+changed:
 
-- **Meters** (`useMeters`) — each frame touches two leaf nodes per jack. Going
-  through React state would re-render the whole panel 30x/s for values that are
-  already a single `textContent` and `style.width` write.
-- **Cables** (`Cables.tsx`) — React owns the *set* of `<path>` elements, keyed
-  by connection id. Their `d` is measured from the live DOM and recomputed only
-  when something could have moved; stroke width/opacity/dash offset are
-  animated per frame. Neither is a React prop, so renders and animation never
-  fight over the same attribute.
+- **`patchbay`** state is immutable. Every change produces a new state object
+  in which unchanged fields keep their identity, and subscribers get
+  `(state, prev)`. A view compares the fields it cares about with `!==` and
+  does nothing when they are equal.
+- **`live.onStatus`** fires only when link / panic / rounded rate / preset /
+  module revision actually change. The ~30 frames/s go to `live.subscribe`.
+- Lists are **keyed by id** where rebuilding would hurt: module cards (a
+  camera preview keeps its stream) and cables. The inspector is built once per
+  selected cable. While that cable stays selected, refreshes update values in
+  place, so a field you are tabbing through keeps its focus.
+- Listeners are the DOM's own events. `onChange` in `h()` is the native
+  `change` event, which fires once a value is committed (blur, Enter, stepper),
+  so a number field doesn't send a PUT for every digit typed.
 
-Everything else — module layout, jack state classes, the inspector, presets —
-is ordinary React state derived from the engine, which stays the single source
-of truth: every mutation is a REST call followed by a re-read of `/api/graph`.
+Two paths run every frame and write attributes directly:
+
+- **Meters** (`meters.ts`): each frame touches two leaf nodes per jack, a
+  `textContent` and a `style.width`.
+- **Cables** (`cables.ts`): the path `d` is measured from the live DOM and
+  recomputed only when something could have moved. Stroke width, opacity and
+  dash offset are animated per frame from signal activity.
+
+The engine stays the single source of truth: every mutation is a REST call
+followed by a re-read of `/api/graph`.

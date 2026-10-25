@@ -179,6 +179,7 @@ middle. Nothing loads from the internet.
   them.
 - **Rate** — the `Hz` box in the top bar sets the engine tick rate live.
 - **PANIC** — disables every output instantly and releases held keys/buttons.
+  Patch any button to `sys/panic.toggle` to get the same switch on hardware.
 - Mapping `joycon/btn.home → sys/preset.cycle` (both shipped presets do this) makes
   the Home button walk through your preset files.
 
@@ -289,7 +290,8 @@ Source ports are listed in each source's README (see **Sources & sinks**).
 `key.<name>` for any single character or named key (`space`, `esc`, `enter`,
 `tab`, `shift`, `ctrl`, `up`, …).
 
-**Sink `sys`** — `preset.cycle` (rising edge loads the next preset file).
+**Sink `sys`** — `preset.cycle` (rising edge loads the next preset file) and
+`panic.toggle` (rising edge toggles panic, same as the PANIC button).
 
 ---
 
@@ -384,7 +386,7 @@ sources/    base.py  joycon/ mock/ bmi160/ bend4/ cv/      # one folder per sour
 sinks/      base.py  hid/ dryrun/ gpio/                    # one folder per sink type
 patchbay.toml                                              # rig config: disable / autostart / core packages
 patchbay.lock                                              # generated: exact package set for the enabled modules
-ui/         src/ (React + TS)  dist/ (committed build)    # patch panel — see ui/README.md
+ui/         src/ (plain TS)    dist/ (committed build)    # patch panel — see ui/README.md
 presets/    mouse.json  keyboard.json  bmi160-mouse.json  bend4-mouse-keyboard.json
 docs/       OVERVIEW.md  SPECIFICATION.md                  # informal + formal docs
 control.py  interactive CLI console (--cli)                # reconfigure a headless engine

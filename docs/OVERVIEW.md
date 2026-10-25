@@ -123,7 +123,8 @@ on the board. The precise porting contract is §12 of the spec.
 
 ## The safety valve
 
-There's a **PANIC** button (and a `panic` console command). Hit it and every
+There's a **PANIC** button (and a `panic` console command, and a
+`sys/panic.toggle` jack you can patch a physical button to). Hit it and every
 output is cut and everything held is released — keys up, servos to neutral. Use it
 the instant a mapping does something you didn't expect.
 
@@ -134,7 +135,7 @@ engine/     the brain: signals · nodes · graph · loop · registry   (portable
 sources/    one folder per source (joycon, mock, bmi160, bend4, cv camera hand tracker)
 sinks/      one folder per sink   (hid mouse+keyboard, dryrun, gpio) — your stuff goes in these two
 patchbay.toml / patchbay.lock   what's enabled / exactly which packages that means
-ui/         the browser patch panel (React + TS; built dist/ is committed)
+ui/         the browser patch panel (plain TypeScript, no framework; built dist/ is committed)
 presets/    saved graphs, plain JSON
 control.py  the CLI console
 server.py   the local web server (HTTP + SSE + REST)
