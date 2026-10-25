@@ -6,5 +6,5 @@ python = [
 ]
 system = [
   "pair the Joy-Con from the OS Bluetooth settings first (hold the rail sync button)",
-  "Linux: udev rule for hidraw access, and stop `joycond` if it grabs the device (see README)",
+  "Linux: udev rule for hidraw access, and stop `joycond` if it grabs the device (see README.md)",
 ]

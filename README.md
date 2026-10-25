@@ -84,7 +84,9 @@ every start.
 
 The setup is declarative, after NixOS: each module says what it needs, the module
 folders on disk are the configuration, and the environment is made to match it
-exactly.
+exactly. **Every module is enabled by default**: its packages and assets are
+installed up front, so any source or sink can be added live from the UI at any
+time without a reinstall or restart. You opt modules *out* with `disable`.
 
 ```
 sources/bmi160/
@@ -117,11 +119,12 @@ either `bmi160` or `bend4` is enabled.
 
 ```toml
 python    = ["uv"]          # core packages (uv itself, so the sync keeps it)
-disable   = ["cv"]          # never imported, and its packages are removed
-autostart = ["bmi160:port=/dev/ttyACM0", "hid"]   # added on start; empty by default
+disable   = []              # opt-out, e.g. ["cv"]: never imported, packages removed
+autostart = []              # added on start, e.g. ["bmi160:port=/dev/ttyACM0", "hid"]
 ```
 
-Nothing autostarts by default. A module whose `depends` is disabled is disabled
+Being installed isn't the same as being added. Nothing autostarts by default.
+Installed modules wait in the *add source / add sink* dropdowns. A module whose `depends` is disabled is disabled
 too (`mock` needs `joycon`, `dryrun` needs `hid`). What pip can't do — pairing,
 udev rules, serial groups, macOS Accessibility and camera permissions — is listed
 in each module's `system` notes. `python run.py --sync` prints them.
@@ -131,107 +134,26 @@ modules that pin incompatible versions of a package can't both be enabled. The
 resolver names both modules' files when that happens.
 
 ---
-
-## Pairing the Joy-Con over Bluetooth
-
-The Joy-Con pairs as a standard Bluetooth HID gamepad. Hold the small **round
-sync button** on the rail (between SL and SR) until the lights run back and forth,
-then pair from the OS:
-
-- **Linux** — `bluetoothctl` → `scan on` → `pair <MAC>` → `connect <MAC>` → `trust <MAC>`.
-  You then need read access to the hidraw node. Drop this in
-  `/etc/udev/rules.d/70-joycon.rules` and `sudo udevadm control --reload && sudo udevadm trigger`:
-
-  ```
-  # Nintendo Switch Joy-Con / Pro Controller — user access to hidraw
-  KERNEL=="hidraw*", KERNELS=="*057E:200[6-9]*", MODE="0660", TAG+="uaccess"
-  SUBSYSTEM=="hidraw", ATTRS{idVendor}=="057e", MODE="0660", TAG+="uaccess"
-  ```
-
-  If a system service grabs the Joy-Con first (`joycond`), stop/mask it so
-  `pyjoycon` can open the device: `sudo systemctl stop joycond`.
-
-- **macOS** — pair from  System Settings ▸ Bluetooth. `hidapi` can open it with no
-  extra permissions.
-
-- **Windows** — pair from  Settings ▸ Bluetooth & devices. Works via the default
-  HID driver.
-
-Check it's visible:
-
-```bash
-python run.py --list-ports
-python -c "from pyjoycon import get_R_id; print(get_R_id())"   # -> (1406, 8199, '...') when found
-```
-
-The right Joy-Con held horizontally (SL/SR up, rail to the left) is the reference
-orientation for `tilt.pitch` / `tilt.roll`.
-
 ---
 
-## Adding a source: Arduino Nano + BMI160
+## Sources & sinks
 
-`sources/bmi160/` reads a Nano running `sources/bmi160/firmware/bmi160_nano/bmi160_nano.ino`
-over USB serial — no Bluetooth, no pairing, just a cable.
+Each module's setup (pairing, wiring, firmware, permissions) and its ports are
+documented in its own folder. Packages are installed automatically; the module
+README covers what pip can't do.
 
-**Wire it up** (I2C): BMI160 `VCC`→`5V` (or `3V3`, check your breakout),
-`GND`→`GND`, `SCL`→`A5`, `SDA`→`A4`.
+| type | kind | what | setup |
+|---|---|---|---|
+| `joycon` | source | Nintendo Switch Joy-Con (R) over Bluetooth | [sources/joycon/](sources/joycon/README.md) |
+| `mock` | source | synthetic Joy-Con stand-in, no hardware | — |
+| `bmi160` | source | Arduino Nano + BMI160 IMU over USB serial | [sources/bmi160/](sources/bmi160/README.md) |
+| `bend4` | source | Arduino Nano + four flex sensors over USB serial | [sources/bend4/](sources/bend4/) |
+| `cv` | source | webcam hand tracking (OpenCV + MediaPipe) | [sources/cv/](sources/cv/README.md) |
+| `hid` | sink | virtual mouse + keyboard (pynput) | see **Ports** |
+| `dryrun` | sink | logging-only stand-in for `hid` | — |
+| `gpio` | sink | Raspberry Pi PWM + digital out | [sinks/gpio/](sinks/gpio/) |
 
-**Flash it**: open `sources/bmi160/firmware/bmi160_nano/bmi160_nano.ino` in the Arduino IDE,
-install the **BMI160-Arduino** library (Library Manager, or
-https://github.com/hanyazou/BMI160-Arduino), select *Arduino Nano* as the
-board, upload.
-
-**Run it**:
-
-```bash
-python run.py --source bmi160 --preset bmi160-mouse   # pyserial comes from its module.toml
-#   port is auto-detected; if that fails, or you have more than one board
-#   plugged in, be explicit:
-python run.py --source bmi160:port=/dev/ttyACM0     # Linux
-python run.py --source bmi160:port=COM5             # Windows
-python run.py --source bmi160:port=/dev/cu.usbserial-1420   # macOS
-```
-
-This pre-loads the `bmi160` source; add a mouse/keyboard sink (`--sink hid`, or
-from the UI) to drive anything, and patch either into it. You can run several
-sources at once — a second board just gets a suffixed id (`bmi160-2`). `--preset
-bmi160-mouse` is a starting air-mouse mapping (`gyro.x/y` → cursor, a shake
-past 2.2 g → left-click) since this board has no buttons of its own; wire up
-whatever else you like in the patch panel.
-
-**Linux serial permissions**: your user needs to be in the `dialout` group
-(`sudo usermod -aG dialout $USER`, then log out/in) or the port opens with
-"Permission denied".
-
-**If ports look wrong or jump around**: the firmware sends a fixed ±2 g /
-±250 deg/s range explicitly (`BMI160.setAccelerometerRange`/`setGyroRange` in
-the sketch) — `ACCEL_LSB_PER_G`/`GYRO_LSB_PER_DPS` at the top of
-`sources/bmi160/` assume exactly that. Change both sides together if
-you reconfigure the sensor's range. If pitch/roll are inverted for how you've
-mounted the board, that's an orientation convention, not a bug — flip the axis
-with an `invert` node in the patch panel rather than editing the plugin.
-
-## Adding a source: camera hand tracking (OpenCV + MediaPipe)
-
-`sources/cv/` turns a webcam into a source (type `cv`): the index-finger
-tip as `hand.x`/`hand.y`, a thumb–index `hand.pinch`, and all 21 raw MediaPipe
-hand landmarks grouped by finger — `wrist.x`, `thumb_tip.y`, `index_mcp.z`, ...
-(-1..1, x mirrored, y up, z + toward the camera). Its card shows a small live
-camera preview with the landmarks drawn on. Its `module.toml` declares
-`mediapipe` + OpenCV and the MediaPipe model files, so the sync installs and
-downloads them. If you don't want them, add `disable = ["cv"]` to `patchbay.toml`.
-
-```bash
-python run.py --source cv                      # or add "Hand tracker (camera)" from the UI
-python run.py --source cv:camera=1
-```
-
-On macOS, grant your terminal camera access in System Settings › Privacy the
-first time. `sources/cv/hand_tracker.py` and `gesture_tracker.py` are the
-standalone OpenCV prototype scripts the module was built from. The module imports
-its landmarker setup from `hand_tracker.py`, but the engine never runs the scripts
-themselves.
+`python run.py --sync` prints every enabled module's system-setup notes.
 
 ---
 
@@ -360,14 +282,7 @@ mock source works unchanged on real hardware.
 
 `python run.py --list-ports` for the live list.
 
-**Source `joycon`** — `stick.x/y`, `accel.x/y/z`, `accel.mag`, `gyro.x/y/z`,
-`tilt.pitch`, `tilt.roll`, `btn.{a,b,x,y,r,zr,sl,sr,plus,home,rstick}`.
-`gyro.*` is deg/s, `accel.*` is g, `tilt.*` is gravity-referenced degrees
-(drift-free), `accel.mag` ≈ 1.0 at rest and spikes on a shake.
-
-**Source `bmi160`** (with `--source bmi160`) — `accel.x/y/z`, `accel.mag`,
-`gyro.x/y/z`, `tilt.pitch`, `tilt.roll`. Same units and the same derived-tilt
-convention as `joycon` above; no buttons or stick — it's a bare IMU.
+Source ports are listed in each source's README (see **Sources & sinks**).
 
 **Sink `hid`** — `mouse.dx`, `mouse.dy` (pixels/second), `mouse.wheel`
 (clicks/second), `mouse.{left,right,middle,btn_back,btn_forward}`, and
