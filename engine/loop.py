@@ -19,7 +19,7 @@ import time
 import traceback
 from pathlib import Path
 
-from . import registry
+from . import presets, registry
 from .graph import Graph
 from .signals import ModuleSpec, PortSpec, EVENT
 
@@ -335,18 +335,40 @@ class EngineLoop:
     def list_presets(self):
         return sorted(p.stem for p in self.preset_dir.glob("*.json"))
 
-    def load_preset(self, name: str):
-        path = self.preset_dir / f"{name}.json"
-        data = json.loads(path.read_text())
+    def _preset_path(self, name: str) -> Path:
+        return self.preset_dir / f"{presets.check_name(name)}.json"
+
+    def read_preset(self, name: str) -> dict:
+        data = json.loads(self._preset_path(name).read_text())
         data.setdefault("name", name)
+        return data
+
+    def load_preset(self, name: str):
+        data = self.read_preset(name)
         self.replace_graph(data, name=name)
         return data
 
+    def running_types(self) -> dict[str, dict[str, str]]:
+        """``{"source": {instance id: plugin type}, "sink": {...}}`` (not ``sys``)."""
+        with self._lock:
+            groups = {"source": dict(self.sources), "sink": dict(self.sinks)}
+        return {kind: {iid: registry._type_key(type(inst)) for iid, inst in mods.items()
+                       if inst is not self.sys}
+                for kind, mods in groups.items()}
+
     def save_preset(self, name: str, graph_dict: dict | None = None):
+        path = self._preset_path(name)
         with self._lock:
             d = graph_dict or self.graph.to_dict()
         d["name"] = name
-        (self.preset_dir / f"{name}.json").write_text(json.dumps(d, indent=2))
+        previous = None
+        if path.is_file():
+            try:
+                previous = json.loads(path.read_text()).get("requires")
+            except Exception:
+                pass
+        d["requires"] = presets.derive_requires(d, self.running_types(), previous)
+        path.write_text(json.dumps(d, indent=2))
         if graph_dict is not None:
             self.replace_graph(d, name=name)
         else:
@@ -354,11 +376,24 @@ class EngineLoop:
         return d
 
     def delete_preset(self, name: str):
-        p = self.preset_dir / f"{name}.json"
+        p = self._preset_path(name)
         if p.exists():
             p.unlink()
             return True
         return False
+
+    def preset_info(self) -> dict[str, dict]:
+        """Per preset file: what it requires, and which of that isn't installed."""
+        out = {}
+        for name in self.list_presets():
+            try:
+                data = self.read_preset(name)
+            except Exception as e:
+                out[name] = {"requires": [], "missing": [], "error": str(e)}
+                continue
+            out[name] = {"requires": presets.requirements(data),
+                         "missing": presets.missing(data)}
+        return out
 
     def _cycle_preset(self):
         names = self.list_presets()

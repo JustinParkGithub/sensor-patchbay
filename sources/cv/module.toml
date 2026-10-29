@@ -1,4 +1,5 @@
 # Webcam hand tracking (MediaPipe HandLandmarker).
+kind = "source"
 python = [
   "mediapipe",
   "opencv-contrib-python",   # provides cv2; the same build mediapipe itself depends on

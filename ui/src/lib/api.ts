@@ -3,7 +3,19 @@
  * endpoint, so callers never hand-write a path or a request body.
  */
 
-import type { ChainNode, Connection, EngineState, Graph, ModuleKind, ModuleSpec } from '../types'
+import type {
+  ChainNode,
+  Connection,
+  EngineState,
+  Graph,
+  MissingRequirement,
+  ModuleKind,
+  ModuleSpec,
+  PluginCatalog,
+  PresetInfoMap,
+  SyncReport,
+  UploadResult,
+} from '../types'
 
 export class ApiError extends Error {
   readonly status: number
@@ -68,14 +80,44 @@ export const api = {
     ),
 
   loadPreset: (name: string) =>
-    request<{ ok: boolean; graph: Graph }>('POST', '/api/preset/load', { name }),
+    request<{ ok: boolean; graph: Graph; missing: MissingRequirement[] }>(
+      'POST',
+      '/api/preset/load',
+      { name },
+    ),
   savePreset: (name: string, graph: Graph) =>
-    request<{ ok: boolean; preset: string; presets: string[] }>('POST', '/api/preset/save', {
-      name,
-      graph,
-    }),
+    request<{ ok: boolean; preset: string; presets: string[]; preset_info: PresetInfoMap }>(
+      'POST',
+      '/api/preset/save',
+      { name, graph },
+    ),
   deletePreset: (name: string) =>
-    request<{ ok: boolean; presets: string[] }>('POST', '/api/preset/delete', { name }),
+    request<{ ok: boolean; presets: string[]; preset_info: PresetInfoMap }>(
+      'POST',
+      '/api/preset/delete',
+      { name },
+    ),
+
+  /** Re-read modules + presets on disk and install module packages; can take a while. */
+  sync: () =>
+    request<{
+      ok: boolean
+      report: SyncReport
+      plugins: PluginCatalog
+      presets: string[]
+      preset_info: PresetInfoMap
+    }>('POST', '/api/sync', {}),
+
+  /** A module `.zip` or a preset `.json`, sent as the raw body. */
+  upload: async (file: File): Promise<UploadResult> => {
+    const res = await fetch(`/api/upload?filename=${encodeURIComponent(file.name)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: file,
+    })
+    if (!res.ok) throw await toError(res)
+    return (await res.json()) as UploadResult
+  },
 }
 
 export function errorMessage(e: unknown): string {

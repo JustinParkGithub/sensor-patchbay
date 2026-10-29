@@ -1,4 +1,5 @@
 # Nintendo Switch Joy-Con (R) over Bluetooth HID.
+kind = "source"
 python = [
   "joycon-python>=0.2.4",   # imported as `pyjoycon`; declares no deps of its own, so:
   "hidapi>=0.14.0",         #   its HID backend

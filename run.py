@@ -31,7 +31,9 @@ so a headless board can come up ready; nothing here can't also be done live.
 Modules listed in patchbay.toml's ``autostart`` are added on start (none by
 default); ``--no-autostart`` ignores that list for one run.
 
-Then open http://127.0.0.1:8420 in a browser on the same machine.
+Then open http://127.0.0.1:8420 in a browser on the same machine. The desktop
+app (app.py) is this same startup in a native window with a tray icon; its
+``patchbay`` executable takes every flag above.
 """
 
 from __future__ import annotations
@@ -40,19 +42,17 @@ import argparse
 import sys
 import threading
 import time
-from pathlib import Path
 
 if sys.version_info < (3, 11):
     sys.exit("sensor-patchbay needs Python 3.11+ (found %d.%d)" % sys.version_info[:2])
 
-from engine import modules
+from engine import library, modules, paths
 from engine.graph import Graph
 from engine.loop import EngineLoop
 from engine.registry import (SINKS, SOURCES, build, describe,
                              build_spec, discover)
 
-HERE = Path(__file__).parent
-PRESETS = HERE / "presets"
+PRESETS = paths.PRESETS
 
 
 def build_extra(registry: dict, specs: list, kind: str) -> dict:
@@ -90,7 +90,17 @@ def load_graph(name: str) -> Graph:
     return Graph(name=name)
 
 
+def _need_standins() -> bool:
+    missing = [n for n, reg in (("mock", SOURCES), ("dryrun", SINKS)) if n not in reg]
+    if missing:
+        print(f"needs the {' and '.join(missing)} module(s); install them first "
+              "(upload in the UI, or `install` in the --cli console)")
+    return not missing
+
+
 def selftest():
+    if not _need_standins():
+        sys.exit(1)
     _, mock = build(SOURCES, "mock")
     _, null = build(SINKS, "dryrun")
     eng = EngineLoop({"joycon": mock}, {"hid": null}, load_graph("mouse"), PRESETS, rate=120)
@@ -108,6 +118,8 @@ def selftest():
 def list_ports():
     """Print the ports of the always-available stand-ins (mock source, dry-run
     sink) so you can see the bus namespace presets are written against."""
+    if not _need_standins():
+        sys.exit(1)
     _, src = build(SOURCES, "mock")
     _, hid = build(SINKS, "dryrun")
     for m in (src.module(), hid.module()):
@@ -117,7 +129,7 @@ def list_ports():
             print(f"  {pd['type']:7} {m.id}/{pd['id']:20} {pd.get('hint','')}")
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--host", default="127.0.0.1")
@@ -152,24 +164,36 @@ def main():
     ap.add_argument("--no-ui", action="store_true",
                     help="don't start the web server (headless / appliance)")
     ap.add_argument("--selftest", action="store_true")
-    args = ap.parse_args()
+    return ap
 
+
+def prepare(args) -> bool:
+    """Sync + import modules, then run a one-shot flag if one was given.
+    Returns True when that flag's job is done and there's nothing left to run."""
+    paths.ensure_layout()
+    library.EXTRA_DIRS[:] = args.ext
+    library.ENV_SYNC = not args.no_sync
     # Make the environment match the declared modules, then import the enabled ones.
     enabled = modules.ensure(args.ext, sync=not args.no_sync,
                              upgrade=args.upgrade, verbose=args.sync)
     if args.sync:
-        return
+        return True
     discover(enabled)  # populate SOURCES/SINKS
 
     if args.list_sources:
-        return print(describe(SOURCES))
-    if args.list_sinks:
-        return print(describe(SINKS))
-    if args.selftest:
-        return selftest()
-    if args.list_ports:
-        return list_ports()
+        print(describe(SOURCES))
+    elif args.list_sinks:
+        print(describe(SINKS))
+    elif args.selftest:
+        selftest()
+    elif args.list_ports:
+        list_ports()
+    else:
+        return False
+    return True
 
+
+def start_engine(args) -> EngineLoop:
     # No default source or sink: the engine comes up empty and you patch in
     # hardware live. The flags below are pure pre-load shorthands.
     source_specs = (["mock"] if args.mock else []) + list(args.source)
@@ -188,6 +212,14 @@ def main():
 
     engine = EngineLoop(sources, sinks, load_graph(args.preset), PRESETS, rate=args.rate)
     engine.start()
+    return engine
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+    if prepare(args):
+        return
+    engine = start_engine(args)
 
     httpd = None
     if not args.no_ui:

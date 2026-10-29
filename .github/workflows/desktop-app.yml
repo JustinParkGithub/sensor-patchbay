@@ -1,0 +1,69 @@
+# Builds the desktop app (packaging/sensor-patchbay.spec) on each OS, since
+# PyInstaller can't cross-compile. Run it from the Actions tab, or push a v* tag;
+# each build is attached to the run as an artifact.
+name: Desktop app
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            name: linux-x86_64
+          - os: macos-14
+            name: macos-arm64
+          - os: windows-latest
+            name: windows-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Linux GUI libraries (WebKitGTK, PyGObject, AppIndicator)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgirepository-2.0-dev libcairo2-dev pkg-config \
+            gir1.2-webkit2-4.1 gir1.2-ayatanaappindicator3-0.1
+          pip install PyGObject
+
+      - name: Build tools
+        run: pip install -r packaging/requirements.txt
+
+      - name: Self-test the engine from source
+        run: python run.py --no-sync --selftest
+
+      - name: Build
+        run: pyinstaller --noconfirm packaging/sensor-patchbay.spec
+
+      - name: Smoke-test the build (starts empty, lists nothing)
+        shell: bash
+        run: |
+          export PATCHBAY_HOME="$RUNNER_TEMP/patchbay-home"
+          dist/sensor-patchbay/patchbay --list-sources
+
+      - name: Archive
+        shell: bash
+        run: |
+          cd dist
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            ditto -c -k --keepParent "Sensor Patchbay.app" "../sensor-patchbay-${{ matrix.name }}.zip"
+          elif [ "$RUNNER_OS" = "Windows" ]; then
+            7z a "../sensor-patchbay-${{ matrix.name }}.zip" sensor-patchbay
+          else
+            tar czf "../sensor-patchbay-${{ matrix.name }}.tar.gz" sensor-patchbay
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sensor-patchbay-${{ matrix.name }}
+          path: sensor-patchbay-${{ matrix.name }}.*

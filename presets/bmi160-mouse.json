@@ -1,5 +1,9 @@
 {
   "name": "bmi160-mouse",
+  "requires": [
+    {"id": "bmi160", "kind": "source", "types": ["bmi160"]},
+    {"id": "hid", "kind": "sink", "types": ["dryrun", "hid"]}
+  ],
   "connections": [
     {
       "id": "b_dx",

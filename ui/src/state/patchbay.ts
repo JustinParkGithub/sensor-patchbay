@@ -23,8 +23,11 @@ import type {
   Graph,
   ModuleKind,
   ModuleSpec,
+  MissingRequirement,
   NodeSpecs,
   PluginCatalog,
+  PresetInfoMap,
+  SyncReport,
 } from '../types'
 import { live } from './live'
 import { toast, toastError } from './toast'
@@ -35,6 +38,8 @@ interface BaseState {
   modules: ModuleSpec[]
   nodeSpecs: NodeSpecs
   presets: string[]
+  /** Per preset: what it requires and what of that isn't installed. */
+  presetInfo: PresetInfoMap
   presetName: string
   graph: Graph
   /** Every registered plugin type, for the add-source / add-sink pickers. */
@@ -71,6 +76,7 @@ const INITIAL: BaseState = {
   modules: [],
   nodeSpecs: {},
   presets: [],
+  presetInfo: {},
   presetName: '',
   graph: EMPTY_GRAPH,
   plugins: EMPTY_CATALOG,
@@ -117,6 +123,7 @@ export class Patchbay {
           modules: state.modules,
           nodeSpecs: state.nodes,
           presets: state.presets,
+          presetInfo: state.preset_info,
           presetName: state.preset,
           plugins: state.plugins,
           graph,
@@ -135,6 +142,7 @@ export class Patchbay {
     this.set({
       modules: state.modules,
       presets: state.presets,
+      presetInfo: state.preset_info,
       presetName: state.preset,
       plugins: state.plugins,
       graph,
@@ -143,8 +151,50 @@ export class Patchbay {
     })
   }
 
-  setPresets(presets: string[]): void {
-    this.set({ presets })
+  setPresets(presets: string[], presetInfo: PresetInfoMap): void {
+    this.set({ presets, presetInfo })
+  }
+
+  // ---- the library: uploads + sync -------------------------------
+  /**
+   * Re-read every module and preset on disk (and install what modules need).
+   * Resolves with the report, or null if the engine refused.
+   */
+  async sync(): Promise<SyncReport | null> {
+    try {
+      const res = await api.sync()
+      this.set({ plugins: res.plugins, presets: res.presets, presetInfo: res.preset_info })
+      return res.report
+    } catch (e) {
+      toastError(e)
+      return null
+    }
+  }
+
+  /**
+   * Install each file (a module `.zip` or a preset `.json`), then sync once so
+   * new modules show up in the pickers. Resolves with a line per file.
+   */
+  async upload(files: File[]): Promise<{ lines: string[]; report: SyncReport | null }> {
+    const lines: string[] = []
+    let failed = false
+    for (const file of files) {
+      try {
+        const res = await api.upload(file)
+        const verb = res.replaced ? 'replaced' : 'added'
+        lines.push(
+          res.kind === 'preset'
+            ? `${verb} preset ${res.name}${res.missing.length ? ` (${needs(res.missing)})` : ''}`
+            : `${verb} ${res.module_kind} ${res.name}`,
+        )
+      } catch (e) {
+        failed = true
+        lines.push(errorMessage(e))
+      }
+    }
+    const report = await this.sync()
+    if (failed) toast(lines.join(' · '), true)
+    return { lines, report }
   }
 
   // ---- changes made behind our back ------------------------------
@@ -174,6 +224,7 @@ export class Patchbay {
       this.set({
         modules: state.modules,
         presets: state.presets,
+        presetInfo: state.preset_info,
         presetName: state.preset,
         plugins: state.plugins,
         graph,
@@ -191,7 +242,7 @@ export class Patchbay {
     try {
       const [state, graph] = await Promise.all([api.state(), api.graph()])
       if (gen !== this.modulesGen) return
-      this.set({ modules: state.modules, plugins: state.plugins, graph })
+      this.set({ modules: state.modules, plugins: state.plugins, presetInfo: state.preset_info, graph })
     } catch (e) {
       if (gen === this.modulesGen) toastError(e)
     }
@@ -295,6 +346,11 @@ export class Patchbay {
   private async refreshGraph(): Promise<void> {
     this.set({ graph: await api.graph() })
   }
+}
+
+/** `needs source joycon, sink hid` — a one-line summary of missing requirements. */
+export function needs(missing: MissingRequirement[]): string {
+  return `needs ${missing.map((m) => `${m.kind} ${m.id}`).join(', ')}`
 }
 
 export const patchbay = new Patchbay()

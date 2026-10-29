@@ -1,5 +1,9 @@
 {
   "name": "keyboard",
+  "requires": [
+    {"id": "joycon", "kind": "source", "types": ["joycon", "mock"]},
+    {"id": "hid", "kind": "sink", "types": ["dryrun", "hid"]}
+  ],
   "connections": [
     {
       "id": "k_d",

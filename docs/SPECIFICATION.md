@@ -21,7 +21,7 @@ hot-editable *routing graph* of small DSP *nodes*, and delivered to one or more
 
 The same running core is edited two interchangeable ways: a browser **patch
 panel** (GUI) and an on-device **CLI console**. Both are thin front-ends over one
-controller (`EngineLoop`); neither can perform an operation the other cannot.
+controller (`EngineLoop`); neither can perform an operation the other cannot (the two are isomorphic).
 
 ```
  sources                     routing core                         sinks
@@ -62,7 +62,7 @@ Type compatibility for a patch (`engine.signals.types_compatible`):
 - `event → scalar`: allowed (0/1 is a valid scalar).
 - `scalar → event`: allowed by the graph, but the chain **SHOULD** contain a
   `threshold` or `schmitt` node or the sink will chatter. The GUI greys the drop
-  target and warns; it does not forbid it.
+  target and warns, but does not forbid it.
 
 ### 2.3 Port identifiers
 A port has a local id (e.g. `gyro.z`). On the bus it is **namespaced** by its
@@ -141,7 +141,17 @@ A preset file **is** a serialised graph:
   ] }
 ```
 `enabled` defaults to `true`; `id` is generated if absent; `params` defaults to
-`{}`. Presets are plain JSON in `presets/` (`<name>.json`).
+`{}`. Presets are plain JSON in `presets/` (`<name>.json`), where `<name>` matches
+`[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}` and doesn't end in `.`.
+
+A preset **MAY** carry `"requires": [{"id", "kind", "types": [...]}, …]`, one
+entry per bus namespace its connections use (`sys` excluded). `EngineLoop.save_preset`
+**MUST** write it. `types` is the union of three sets: the type of the instance
+running under `id` at save time, every registered type whose default `id` equals
+it, and the types already listed in the file. A requirement is met when any of
+`types` is registered and `available()`. With no `requires`, the namespaces in
+`connections` are checked against registered default ids instead
+(`engine.presets`).
 
 ---
 
@@ -216,7 +226,7 @@ environment, and a sync makes the installed packages match them **exactly**.
 
   | key | type | meaning |
   |---|---|---|
-  | `kind` | `"source"`\|`"sink"` | implied by `sources/`/`sinks/`; **required** in extension dirs |
+  | `kind` | `"source"`\|`"sink"` | implied by `sources/`/`sinks/`; **required** in extension dirs and uploaded zips (every in-repo manifest sets it) |
   | `python` | `[str]` | PEP 508 requirement strings (markers allowed) |
   | `depends` | `[str]` | module types whose *code* this one imports |
   | `system` | `[str]` | setup pip can't perform; printed, never executed |
@@ -238,6 +248,20 @@ environment, and a sync makes the installed packages match them **exactly**.
 - **Sync.** `uv pip sync patchbay.lock` runs against the running interpreter. It
   is exact: packages absent from the lock are uninstalled. Then each enabled
   module's assets are downloaded if they are missing or fail the sha256 check.
+- **Packaged app.** When `sys.frozen` is set, the code is read-only and ships no
+  modules or presets. Module folders, presets, `patchbay.toml` and the lock live
+  in a per-user data folder (`engine.paths`; `PATCHBAY_HOME` overrides it), and
+  `sources`/`sinks` import from there too. Instead of syncing the interpreter, the
+  lock is installed (`uv pip install --target --no-deps`, with the bundled uv)
+  into a new `site-packages/<lock digest>/`, which is appended to `sys.path`. It
+  falls back to one package at a time, and a folder with failures is marked
+  partial and retried. Other digests are deleted on the next start, except the
+  last one in use. With no requirements, uv is not run.
+- **Refresh.** `engine.library.sync()` (the UI's sync, the console's `sync`)
+  repeats find → resolve → sync → `discover`. `discover` is idempotent: it
+  imports new modules, re-imports a module whose `.py`/`.toml` files changed
+  (path, mtime, size), and unregisters the types of modules no longer enabled.
+  Running instances are untouched.
 - **Failure modes are non-fatal.** If uv is missing, the sync fails, or `--no-sync`
   is given, the engine still starts with whatever is installed. Plugins whose
   packages are missing then show as unavailable (§5.3).
@@ -364,7 +388,7 @@ network access.
 |---|---|
 | `GET /` and any non-`/api/` path | static UI, served from `ui/dist/` |
 | `GET /events` | SSE stream of §8.4 snapshots, ~30 Hz |
-| `GET /api/state` | `{preset, presets, panic, rate, modules, nodes, plugins}` |
+| `GET /api/state` | `{preset, presets, preset_info, panic, rate, modules, nodes, plugins}`; `preset_info` is `{name: {requires, missing:[{id, kind, types, reason}]}}` |
 | `GET /api/graph` | graph dict (§4.3) |
 | `GET /api/nodes` | `NODE_SPECS` |
 | `GET /api/presets` | `{presets, current}` |
@@ -375,9 +399,11 @@ network access.
 | `POST /api/disconnect` | `{id}` → `{ok}` |
 | `POST /api/panic` | `{on}` → `{panic}` |
 | `POST /api/rate` | `{rate}` → `{ok, rate}` (live tick-rate change) |
-| `POST /api/preset/load` | `{name}` → `{ok, graph}` |
-| `POST /api/preset/save` | `{name, graph?}` → `{ok, preset, presets}` |
-| `POST /api/preset/delete` | `{name}` → `{ok, presets}` |
+| `POST /api/preset/load` | `{name}` → `{ok, graph, missing}` |
+| `POST /api/preset/save` | `{name, graph?}` → `{ok, preset, presets, preset_info}` |
+| `POST /api/preset/delete` | `{name}` → `{ok, presets, preset_info}` |
+| `POST /api/upload?filename=F` | raw file body: a preset `.json` or a module `.zip` → `{ok, kind, name, replaced, …}` (`engine.library`) |
+| `POST /api/sync` | `{upgrade?}` → `{ok, report:{log, notes, sources, sinks}, plugins, presets, preset_info}`; re-runs the module sync and `discover` |
 | `POST /api/source` | `{type, id?, args?}` → `{ok, id, modules}` |
 | `POST /api/sink` | `{type, id?, args?}` → `{ok, id, modules}` |
 | `POST /api/source/remove` | `{id}` → `{ok, dropped, modules, graph}` |

@@ -2,6 +2,7 @@ import { api } from '../lib/api'
 import { h } from '../lib/dom'
 import { live } from '../state/live'
 import { toastError } from '../state/toast'
+import { libraryBar } from './libraryBar'
 import { presetBar } from './presetBar'
 import { statusBar } from './statusBar'
 
@@ -11,6 +12,7 @@ export function topBar(): HTMLElement {
     { id: 'bar' },
     h('div', { className: 'brand' }, h('span', { className: 'glyph' }, '▚'), ' sensor · patchbay'),
     presetBar(),
+    libraryBar(),
     h('div', { className: 'spacer' }),
     statusBar(),
     panicButton(),

@@ -28,6 +28,10 @@ own ``try/except`` so one module's failure never blocks the others, which is
 enough for the ``@register_source`` / ``@register_sink`` decorators to populate
 :data:`SOURCES` / :data:`SINKS`. The folder name must equal the class's ``type``.
 
+Calling it again (the UI's *sync* button) refreshes in place: new folders are
+imported, folders whose files changed are re-imported, and types whose folder is
+gone or disabled leave the menus. Instances already running keep running.
+
 Availability
 ------------
 A plugin whose Python module imports fine can still be unrunnable because an
@@ -78,13 +82,17 @@ def extension_dirs() -> list[Path]:
             if raw.strip()]
 
 
+def _import_name(mod) -> str:
+    return f"{mod.kind}s.{mod.name}" if not mod.external else f"patchbay_ext_{mod.name}"
+
+
 def _import_module(mod) -> None:
     """Import one :class:`engine.modules.Module` so its decorators run."""
     if not mod.external:
-        importlib.import_module(f"{mod.kind}s.{mod.name}")
+        importlib.import_module(_import_name(mod))
         return
     # An out-of-repo folder isn't on sys.path; load it as a package by file path.
-    name = f"patchbay_ext_{mod.name}"
+    name = _import_name(mod)
     spec = importlib.util.spec_from_file_location(
         name, mod.path / "__init__.py", submodule_search_locations=[str(mod.path)])
     module = importlib.util.module_from_spec(spec)
@@ -92,26 +100,73 @@ def _import_module(mod) -> None:
     spec.loader.exec_module(module)
 
 
+def _fingerprint(mod) -> tuple:
+    """What a module's code looked like when imported: path, mtime, size per file."""
+    out = []
+    for p in sorted(mod.path.rglob("*")):
+        if p.suffix in (".py", ".toml") and "__pycache__" not in p.parts and p.is_file():
+            st = p.stat()
+            out.append((str(p.relative_to(mod.path)), st.st_mtime_ns, st.st_size))
+    return tuple(out)
+
+
+# module name -> (import name, fingerprint, registry, types it registered)
+_LOADED: dict[str, tuple[str, tuple, dict, list[str]]] = {}
+
+
+def _forget(name: str):
+    import_name, _, registry, types = _LOADED.pop(name)
+    for key in [k for k in sys.modules if k == import_name or k.startswith(import_name + ".")]:
+        del sys.modules[key]
+    for t in types:
+        registry.pop(t, None)
+
+
 def discover(modules: list | None = None):
     """Import each enabled module (from :func:`engine.modules.ensure`) so its
     ``@register_*`` decorator runs. With no list, every module found on disk.
 
-    Safe to call more than once. A module that fails to import is reported and
-    skipped — it never registers, and stays out of the menus rather than fatal.
+    Safe to call more than once; see *Discovery* above for what a second call
+    does. A module that fails to import is reported and skipped — it never
+    registers, and stays out of the menus rather than fatal.
     """
+    from engine import paths
+    from engine.modules import _say, find_modules
+
     if modules is None:
-        from engine.modules import find_modules
         modules = find_modules()
+    paths.extend_packages()
+    importlib.invalidate_caches()   # see folders written since the last import
+
+    wanted = {m.name: m for m in modules}
+    for name, (import_name, fp, _, _) in list(_LOADED.items()):
+        mod = wanted.get(name)
+        if mod is None:
+            _forget(name)
+            _say(f"[modules] {name}: removed")
+        elif _import_name(mod) != import_name or _fingerprint(mod) != fp:
+            _forget(name)
+            _say(f"[modules] {name}: changed, reloading")
+
     for mod in modules:
+        if mod.name in _LOADED:
+            continue
         registry = SOURCES if mod.kind == "source" else SINKS
+        import_name = _import_name(mod)
+        fp = _fingerprint(mod)
         try:
             _import_module(mod)
         except Exception as e:
-            print(f"[modules] {mod.name}: failed to import ({type(e).__name__}: {e})")
+            _say(f"[modules] {mod.name}: failed to import ({type(e).__name__}: {e})")
             continue
+        # by defining module, not by what appeared: importing a `depends` module
+        # registers *its* type while this one loads
+        types = [t for t, cls in registry.items()
+                 if cls.__module__ == import_name or cls.__module__.startswith(import_name + ".")]
+        _LOADED[mod.name] = (import_name, fp, registry, types)
         if mod.name not in registry:
-            print(f"[modules] {mod.name}: folder name doesn't match any registered "
-                  f"{mod.kind} type (registered: {sorted(registry)})")
+            _say(f"[modules] {mod.name}: folder name doesn't match any registered "
+                 f"{mod.kind} type (registered: {sorted(registry)})")
     return SOURCES, SINKS
 
 

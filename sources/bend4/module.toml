@@ -1,4 +1,5 @@
 # Arduino Nano + four flex sensors over USB serial; sketch in firmware/.
+kind = "source"
 python = ["pyserial>=3.5"]
 system = [
   "flash firmware/bend4_nano/bend4_nano.ino",

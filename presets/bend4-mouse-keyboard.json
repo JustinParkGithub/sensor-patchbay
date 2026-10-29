@@ -1,5 +1,9 @@
 {
   "name": "bend4-mouse-keyboard",
+  "requires": [
+    {"id": "bend4", "kind": "source", "types": ["bend4"]},
+    {"id": "hid", "kind": "sink", "types": ["dryrun", "hid"]}
+  ],
   "connections": [
     {
       "id": "look_right",

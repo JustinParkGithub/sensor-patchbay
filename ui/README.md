@@ -40,8 +40,9 @@ src/
     live.ts           the /events stream, split into a raw frame + a status slice
     jacks.ts          jack id -> DOM nodes, for meters, cables and jack classes
     toast.ts          transient messages
-  components/         topBar · presetBar · statusBar · patchArea · moduleCard ·
-                      cables · meters · addModule · inspector · paramField · hint
+  components/         topBar · presetBar · libraryBar · statusBar · patchArea ·
+                      moduleCard · cables · meters · addModule · inspector ·
+                      paramField · hint
 ```
 
 ## How the views work
