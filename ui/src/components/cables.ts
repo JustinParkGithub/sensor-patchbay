@@ -49,14 +49,15 @@ export function cables(surface: HTMLElement): SVGSVGElement {
   let dashPhase = 0
 
   // Anything that can move a jack invalidates the cached path geometry: the
-  // graph changing, a module being built, the window resizing, or the patch
-  // area scrolling under the (content-space) cable layer.
+  // graph changing, a module being built or moved, the window resizing, a
+  // zoom, or the patch area scrolling under the (content-space) cable layer.
   const invalidate = () => {
     dirty = true
   }
   jacks.subscribe(invalidate)
   window.addEventListener('resize', invalidate)
   surface.addEventListener('scroll', invalidate, { passive: true })
+  surface.addEventListener('layoutchange', invalidate)
 
   const sync = (state: Readonly<PatchbayState>) => {
     const next = new Map<string, Cable>()

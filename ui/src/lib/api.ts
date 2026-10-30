@@ -65,6 +65,8 @@ export const api = {
     request<Connection>('PUT', '/api/connection', patch),
 
   setPanic: (on: boolean) => request<{ panic: boolean }>('POST', '/api/panic', { on }),
+  /** Stop the whole app; the engine releases every output first. */
+  quit: () => request<{ ok: boolean }>('POST', '/api/quit'),
   setRate: (rate: number) => request<{ ok: boolean; rate: number }>('POST', '/api/rate', { rate }),
 
   addModule: (kind: ModuleKind, type: string, args: Record<string, unknown>) =>

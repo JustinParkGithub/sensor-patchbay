@@ -14,6 +14,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import mimetypes
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -49,6 +50,7 @@ def _local_name(host: str) -> bool:
 
 class Handler(BaseHTTPRequestHandler):
     engine = None                      # injected by serve()
+    on_quit = None                     # injected by serve(): stops the whole process
     protocol_version = "HTTP/1.1"
 
     def log_message(self, *a):         # keep the console quiet
@@ -156,6 +158,14 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.split("?", 1)[0] == "/api/upload":
             return self._upload()
         e, p, b = self.engine, self.path, self._body()
+        if p == "/api/quit":
+            if self.on_quit is None:
+                return self._json({"error": "quitting isn't available here"}, 501)
+            self.close_connection = True
+            self._json({"ok": True})
+            # After the reply is out: quitting stops this server.
+            threading.Timer(0.2, type(self).on_quit).start()
+            return
         if p == "/api/connect":
             if not b.get("source") or not b.get("sink"):
                 return self._json({"error": "need source and sink"}, 400)
@@ -330,8 +340,11 @@ class Server(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
-def serve(engine, host="127.0.0.1", port=8420):
+def serve(engine, host="127.0.0.1", port=8420, on_quit=None):
+    """*on_quit* is what the UI's Quit calls (on a worker thread); without one,
+    ``POST /api/quit`` is refused."""
     Handler.engine = engine
+    Handler.on_quit = staticmethod(on_quit) if on_quit else None
     httpd = Server((host, port), Handler)
     httpd.daemon_threads = True
     return httpd

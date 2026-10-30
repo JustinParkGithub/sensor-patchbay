@@ -38,6 +38,7 @@ app (app.py) is this same startup in a native window with a tray icon; its
 
 from __future__ import annotations
 
+import _thread
 import argparse
 import sys
 import threading
@@ -224,7 +225,8 @@ def main(argv=None):
     httpd = None
     if not args.no_ui:
         from server import serve
-        httpd = serve(engine, args.host, args.port)
+        # The UI's Quit lands here like a Ctrl+C, so the same cleanup runs.
+        httpd = serve(engine, args.host, args.port, on_quit=_thread.interrupt_main)
         url = f"http://{args.host}:{args.port}"
         print(f"\n  patchbay UI  ->  {url}")
 

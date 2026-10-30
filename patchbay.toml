@@ -6,8 +6,10 @@
 # everything else (see engine/modules.py). Edit, re-run, done.
 
 # Packages the core itself needs. The engine + web UI are standard library only;
-# uv is listed so the sync never uninstalls the tool doing the syncing.
-python = ["uv"]
+# uv is listed so the sync never uninstalls the tool doing the syncing, and
+# app.py's native window + tray icon need the rest (the packaged app bundles
+# these instead; see packaging/requirements.txt).
+python = ["uv", "pywebview>=5.3", "pystray>=0.19.5", "pillow>=10"]
 
 # Module types to leave out entirely: never imported, and their packages removed.
 # e.g. disable = ["cv"]   # skips mediapipe + opencv

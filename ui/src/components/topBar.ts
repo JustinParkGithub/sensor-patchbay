@@ -5,6 +5,7 @@ import { toastError } from '../state/toast'
 import { libraryBar } from './libraryBar'
 import { presetBar } from './presetBar'
 import { statusBar } from './statusBar'
+import { zoomControl } from './zoom'
 
 export function topBar(): HTMLElement {
   return h(
@@ -13,9 +14,39 @@ export function topBar(): HTMLElement {
     h('div', { className: 'brand' }, h('span', { className: 'glyph' }, '▚'), ' sensor · patchbay'),
     presetBar(),
     libraryBar(),
+    zoomControl(),
     h('div', { className: 'spacer' }),
     statusBar(),
     panicButton(),
+    quitButton(),
+  )
+}
+
+/**
+ * Stops the engine (outputs off, held keys released) and the server — the
+ * whole app, window and tray included. What's left of a browser tab says so.
+ */
+function quitButton(): HTMLElement {
+  const quit = async () => {
+    if (!confirm('Quit sensor-patchbay? Every output stops.')) return
+    try {
+      await api.quit()
+    } catch (e) {
+      return toastError(e)
+    }
+    document.body.replaceChildren(
+      h(
+        'div',
+        { id: 'stopped' },
+        h('span', { className: 'glyph' }, '▚'),
+        ' sensor · patchbay has stopped. You can close this tab.',
+      ),
+    )
+  }
+  return h(
+    'button',
+    { id: 'quitBtn', type: 'button', title: 'quit sensor-patchbay', onClick: () => void quit() },
+    'Quit',
   )
 }
 

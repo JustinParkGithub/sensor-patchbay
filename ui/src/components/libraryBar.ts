@@ -15,6 +15,23 @@ function describeReport(report: SyncReport): string {
   return lines.join('\n')
 }
 
+/** A file the desktop app's native picker read, base64-encoded (see app.py's Api). */
+interface PickedFile {
+  name: string
+  data: string
+}
+
+declare global {
+  interface Window {
+    /** Present only inside the desktop app's native window. */
+    pywebview?: { api?: { pick_files?: () => Promise<PickedFile[] | null> } }
+  }
+}
+
+function decode({ name, data }: PickedFile): File {
+  return new File([Uint8Array.from(atob(data), (c) => c.charCodeAt(0))], name)
+}
+
 function summarize(report: SyncReport): { text: string; bad: boolean } {
   const problems = report.log.filter((line) => PROBLEM.test(line))
   const counts = `${report.sources} sources · ${report.sinks} sinks`
@@ -37,7 +54,7 @@ export function libraryBar(): HTMLElement {
       id: 'uploadBtn',
       type: 'button',
       title: 'add a module (.zip of its folder) or a preset (.json) — or drop files on the window',
-      onClick: () => picker.click(),
+      onClick: () => void pick(),
     },
     'Upload…',
   )
@@ -81,6 +98,15 @@ export function libraryBar(): HTMLElement {
       .then((result) => report(result))
       .finally(() => setBusy(false))
   })
+
+  // The desktop window opens a native picker in the data folder; a browser
+  // can't choose where its file dialog starts, so it gets the plain input.
+  const pick = async () => {
+    const native = window.pywebview?.api?.pick_files
+    if (!native) return picker.click()
+    const picked = await native()
+    if (picked) void upload(picked.map(decode))
+  }
 
   picker.addEventListener('change', () => {
     const files = [...(picker.files ?? [])]

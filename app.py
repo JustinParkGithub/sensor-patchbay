@@ -9,9 +9,10 @@ flags, same engine, same server), with the browser tab replaced by a window:
     python app.py --browser       # tray icon, patch panel in the default browser
     python app.py --no-tray       # window only; closing it quits
 
-Closing the window hides it; the engine keeps driving outputs until you pick
-*Quit* from the tray menu. Without a tray (``--no-tray``, or no tray support on
-this desktop) closing the window quits.
+Closing the window hides it; the engine keeps driving outputs until you quit:
+*Quit* in the patch panel's top bar or the tray menu, or Cmd+Q / the app menu
+on macOS. Without a tray (``--no-tray``, or no tray support on this desktop)
+closing the window quits too.
 
 Any of run.py's console / one-shot flags (``--cli``, ``--no-ui``, ``--sync``,
 ``--list-sources``, ...) skip the window and behave exactly like run.py, so the
@@ -30,6 +31,7 @@ tab / no tray) rather than failing.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import subprocess
@@ -37,6 +39,7 @@ import sys
 import threading
 import urllib.request
 import webbrowser
+from pathlib import Path
 
 import run
 from engine import paths
@@ -102,6 +105,52 @@ def _has_display() -> bool:
     return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 
+def _app_terminating() -> bool:
+    """macOS: True while the app is being asked to quit (Cmd+Q, the app or Dock
+    menu's Quit, logging out) rather than to close the window. pywebview sends
+    both through the window's closing event, synchronously; a quit arrives via
+    the app delegate's ``applicationShouldTerminate_``, which is then on the stack."""
+    frame = sys._getframe(1)
+    while frame is not None:
+        if frame.f_code.co_name == "applicationShouldTerminate_":
+            return True
+        frame = frame.f_back
+    return False
+
+
+def _on_main_thread(fn):
+    """Run *fn* on the main thread when a Cocoa app owns it (the window, or the
+    tray's run loop on macOS), else right away."""
+    if sys.platform == "darwin" and threading.current_thread() is not threading.main_thread():
+        from AppKit import NSApp
+        if NSApp() is not None:
+            from PyObjCTools import AppHelper
+            return AppHelper.callAfter(fn)
+    fn()
+
+
+class Api:
+    """What the patch panel can call in the native window (``window.pywebview.api``).
+    pywebview exposes the public methods; the window is kept private."""
+
+    def __init__(self):
+        self._window = None
+
+    def pick_files(self):
+        """Upload's file picker, opened in the data folder (modules + presets).
+        Returns ``[{name, data}]`` with base64 contents, or None if cancelled; the
+        page then uploads them as if they'd come from its own file input."""
+        import webview
+
+        picked = self._window.create_file_dialog(
+            webview.FileDialog.OPEN, directory=str(paths.DATA), allow_multiple=True,
+            file_types=("Modules and presets (*.zip;*.json)",))
+        if not picked:
+            return None
+        return [{"name": Path(p).name, "data": base64.b64encode(Path(p).read_bytes()).decode("ascii")}
+                for p in picked]
+
+
 class Desktop:
     """The window and the tray icon around one running engine."""
 
@@ -144,15 +193,27 @@ class Desktop:
             webbrowser.open(self.url)
 
     def quit(self):
+        """Close everything; run() then returns and main() stops the engine.
+        Safe from any thread (the tray menu, the UI's Quit request, Cmd+Q)."""
         self.quitting.set()
-        if self.icon is not None:
-            self.icon.stop()
-        if self.window is not None:
-            self.window.destroy()
+
+        def close():
+            if self.icon is not None:
+                self.icon.stop()
+            if self.window is not None:
+                self.window.destroy()
+        _on_main_thread(close)
 
     def _on_closing(self):
-        """Closing the window only hides it while the tray can bring it back."""
-        if self.icon is not None and not self.quitting.is_set():
+        """Closing the window only hides it while the tray can bring it back.
+        Quitting the app (macOS) quits: through quit() rather than letting Cocoa
+        terminate, which would exit() before main() releases held keys."""
+        if self.quitting.is_set():
+            return True
+        if _app_terminating():
+            self.quit()
+            return False        # cancel Cocoa's terminate; quit() shuts down cleanly
+        if self.icon is not None:
             self.window.hide()
             return False        # cancel the close
         return True
@@ -184,8 +245,11 @@ class Desktop:
                 self._wait()
             return
 
+        api = Api()
         self.window = webview.create_window(TITLE, self.url, width=1280, height=820,
-                                            min_size=(900, 600), background_color="#14171a")
+                                            min_size=(900, 600), background_color="#14171a",
+                                            js_api=api)
+        api._window = self.window
         self.window.events.closing += self._on_closing
         if self.icon is not None:
             # The GUI toolkit owns the main loop; the icon hooks into it
@@ -219,18 +283,19 @@ def main(argv=None):
     if run.prepare(args):
         return
     engine = run.start_engine(args)
+    desktop = Desktop(engine, "", browser=args.browser, tray=not args.no_tray)
     from server import serve
     try:
-        httpd = serve(engine, args.host, args.port)
+        httpd = serve(engine, args.host, args.port, on_quit=desktop.quit)
     except OSError as e:          # the port is taken by something else: pick a free one
         print(f"[app] port {args.port} unavailable ({e}); using a free port")
-        httpd = serve(engine, args.host, 0)
-    url = f"http://{args.host}:{httpd.server_address[1]}"
+        httpd = serve(engine, args.host, 0, on_quit=desktop.quit)
+    desktop.url = url = f"http://{args.host}:{httpd.server_address[1]}"
     threading.Thread(target=httpd.serve_forever, name="httpd", daemon=True).start()
     print(f"[app] data folder: {paths.DATA}")
 
     try:
-        Desktop(engine, url, browser=args.browser, tray=not args.no_tray).run()
+        desktop.run()
     except KeyboardInterrupt:
         print("\nstopping...")
     finally:
