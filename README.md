@@ -233,6 +233,8 @@ README covers what pip can't do.
 | `bmi160` | source | Arduino Nano + BMI160 IMU over USB serial | [sources/bmi160/](sources/bmi160/README.md) |
 | `bend4` | source | Arduino Nano + four flex sensors over USB serial | [sources/bend4/](sources/bend4/) |
 | `cv` | source | webcam hand tracking (OpenCV + MediaPipe) | [sources/cv/](sources/cv/README.md) |
+| `gamepad` | source | any XInput / DInput / Switch-style controller (SDL2) | [sources/gamepad/](sources/gamepad/README.md) |
+| `pico2` | source | 8BitDo Pico 2 (falls back to any controller), same ports as `gamepad` | [sources/gamepad/](sources/gamepad/README.md) |
 | `hid` | sink | virtual mouse + keyboard (pynput) | see **Ports** |
 | `dryrun` | sink | logging-only stand-in for `hid` | — |
 | `gpio` | sink | Raspberry Pi PWM + digital out | [sinks/gpio/](sinks/gpio/) |
@@ -373,6 +375,18 @@ runs a preset as a fixed appliance.
 | `gyro.y` | scale · deadzone · expo · scale · clamp | `mouse.dx` |
 | `gyro.x` | scale · deadzone · expo · scale · invert · clamp | `mouse.dy` |
 | `accel.mag` | threshold 2.2 g · debounce 500 ms · hold | `mouse.left` (shake to click) |
+
+**`gamepad-mouse-keyboard.json`** — any controller (`gamepad` or `pico2`) as mouse + keyboard
+
+| source | chain | sink |
+|---|---|---|
+| `stick.rx` / `stick.ry` | deadzone 0.12 · expo · scale 1400 (· invert for y) | `mouse.dx` / `mouse.dy` |
+| `btn.rt` / `btn.lt` / `btn.rs` | — | `mouse.left` / `mouse.right` / `mouse.middle` |
+| `btn.lb` / `btn.rb` | — | `mouse.btn_back` / `mouse.btn_forward` |
+| `stick.lx` / `stick.ly` | schmitt ±0.5/±0.35 | `key.a` `key.d` / `key.s` `key.w` |
+| `dpad.*` | — | `key.up/down/left/right` |
+| `btn.a` / `btn.b` / `btn.x` / `btn.y` / `btn.start` | — | `key.space` / `key.esc` / `key.e` / `key.tab` / `key.enter` |
+| `btn.back` | — | `sys/preset.cycle` |
 
 Raw Joy-Con sensor units are arbitrary but stable — tune magnitudes with a
 `scale` node in the preset, never in the plugin, so a preset built against the
@@ -524,12 +538,12 @@ to copy.
 engine/     signals.py nodes.py graph.py loop.py registry.py   # portable core: bus, transforms, routing, tick, plugin registry
             modules.py                                     # module manifests, patchbay.lock, environment sync
             paths.py library.py presets.py                 # data folder, uploads + sync, preset dependencies
-sources/    base.py  joycon/ mock/ bmi160/ bend4/ cv/      # one folder per source type (code + module.toml + firmware/assets)
+sources/    base.py  joycon/ mock/ bmi160/ bend4/ cv/ gamepad/  # one folder per source type (code + module.toml + firmware/assets)
 sinks/      base.py  hid/ dryrun/ gpio/                    # one folder per sink type
 patchbay.toml                                              # rig config: disable / autostart / core packages
 patchbay.lock                                              # generated: exact package set for the enabled modules
 ui/         src/ (plain TS)    dist/ (committed build)    # patch panel — see ui/README.md
-presets/    mouse.json  keyboard.json  bmi160-mouse.json  bend4-mouse-keyboard.json
+presets/    mouse.json  keyboard.json  bmi160-mouse.json  bend4-mouse-keyboard.json  gamepad-mouse-keyboard.json
 docs/       OVERVIEW.md  SPECIFICATION.md                  # informal + formal docs
 control.py  interactive CLI console (--cli)                # reconfigure a headless engine
 server.py   http.server + Server-Sent Events + REST       # stdlib only

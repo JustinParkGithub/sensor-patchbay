@@ -1,0 +1,10 @@
+# Any XInput / DInput / Switch-style gamepad, via SDL2's game controller API.
+kind = "source"
+python = [
+  "pysdl2>=0.9.16",       # imported as `sdl2`
+  "pysdl2-dll>=2.30",     #   ships the SDL2 shared library itself
+]
+system = [
+  "pair over Bluetooth or plug in over USB; XInput, DInput and Switch modes all work",
+  "Linux: user access to /dev/input/event* (the `input` group or a uaccess udev rule)",
+]
