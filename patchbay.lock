@@ -1,4 +1,4 @@
-# patchbay-inputs: 0f10f3395b36fe50
+# patchbay-inputs: 841baca23f9180aa
 # Generated from the module.toml of every enabled module + patchbay.toml.
 # Don't edit: change a manifest and run `python run.py --sync`.
 absl-py==2.5.1
@@ -20,7 +20,9 @@ flatbuffers==25.12.19
 fonttools==4.67.0
     # via matplotlib
 hidapi==0.15.0
-    # via -r sources/joycon.in
+    # via
+    #   -r sources/ds4.in
+    #   -r sources/joycon.in
 joycon-python==0.2.4
     # via -r sources/joycon.in
 kiwisolver==1.5.1

@@ -132,7 +132,7 @@ the instant a mapping does something you didn't expect.
 
 ```
 engine/     the brain: signals · nodes · graph · loop · registry   (portable core) + modules (installs)
-sources/    one folder per source (joycon, mock, bmi160, bend4, cv camera hand tracker)
+sources/    one folder per source (joycon, mock, ds4, bmi160, bend4, cv camera hand tracker)
 sinks/      one folder per sink   (hid mouse+keyboard, dryrun, gpio) — your stuff goes in these two
 patchbay.toml / patchbay.lock   what's enabled / exactly which packages that means
 ui/         the browser patch panel (plain TypeScript, no framework; built dist/ is committed)
