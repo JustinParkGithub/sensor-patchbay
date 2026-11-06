@@ -230,6 +230,7 @@ README covers what pip can't do.
 |---|---|---|---|
 | `joycon` | source | Nintendo Switch Joy-Con (R) over Bluetooth | [sources/joycon/](sources/joycon/README.md) |
 | `mock` | source | synthetic Joy-Con stand-in, no hardware | — |
+| `ds4` | source | Sony DualShock 4 over USB or Bluetooth | [sources/ds4/](sources/ds4/README.md) |
 | `bmi160` | source | Arduino Nano + BMI160 IMU over USB serial | [sources/bmi160/](sources/bmi160/README.md) |
 | `bend4` | source | Arduino Nano + four flex sensors over USB serial | [sources/bend4/](sources/bend4/) |
 | `cv` | source | webcam hand tracking (OpenCV + MediaPipe) | [sources/cv/](sources/cv/README.md) |
@@ -389,6 +390,20 @@ runs a preset as a fixed appliance.
 | `stick.rx` / `stick.ry` | deadzone 0.12 · expo · scale 1400 (· invert for y) | `mouse.dx` / `mouse.dy` |
 | `btn.rt` / `btn.lt` / `btn.rs` | — | `mouse.left` / `mouse.right` / `mouse.middle` |
 
+**`ds4-mouse.json`** — DualShock 4 as a mouse
+
+| source | chain | sink |
+|---|---|---|
+| `rstick.x` / `rstick.y` | deadzone · expo · scale | `mouse.dx` / `mouse.dy` |
+| `touch.dx` / `touch.dy` | scale · clamp | `mouse.dx` / `mouse.dy` (trackpad) |
+| `r2` | schmitt 0.5/0.35 | `mouse.left` |
+| `btn.touchpad` | — | `mouse.left` |
+| `l2` | schmitt 0.5/0.35 | `mouse.right` |
+| `btn.r3` | — | `mouse.middle` |
+| `btn.l1` / `btn.r1` | — | `mouse.btn_back` / `mouse.btn_forward` |
+| `lstick.y` | deadzone · invert · scale · rate_limit | `mouse.wheel` |
+| `btn.ps` | — | `sys/preset.cycle` |
+
 Raw Joy-Con sensor units are arbitrary but stable — tune magnitudes with a
 `scale` node in the preset, never in the plugin, so a preset built against the
 mock source works unchanged on real hardware.
@@ -539,12 +554,12 @@ to copy.
 engine/     signals.py nodes.py graph.py loop.py registry.py   # portable core: bus, transforms, routing, tick, plugin registry
             modules.py                                     # module manifests, patchbay.lock, environment sync
             paths.py library.py presets.py                 # data folder, uploads + sync, preset dependencies
-sources/    base.py  joycon/ mock/ bmi160/ bend4/ cv/ gamepad/  # one folder per source type (code + module.toml + firmware/assets)
+sources/    base.py  joycon/ mock/ bmi160/ bend4/ cv/ ds4/ gamepad/  # one folder per source type (code + module.toml + firmware/assets)
 sinks/      base.py  hid/ dryrun/ gpio/                    # one folder per sink type
 patchbay.toml                                              # rig config: disable / autostart / core packages
 patchbay.lock                                              # generated: exact package set for the enabled modules
 ui/         src/ (plain TS)    dist/ (committed build)    # patch panel — see ui/README.md
-presets/    mouse.json  keyboard.json  bmi160-mouse.json  bend4-mouse-keyboard.json  gamepad-mouse-keyboard.json
+presets/    mouse.json  keyboard.json  bmi160-mouse.json  bend4-mouse-keyboard.json  gamepad-mouse-keyboard.json  ds4-mouse.json
 docs/       OVERVIEW.md  SPECIFICATION.md                  # informal + formal docs
 control.py  interactive CLI console (--cli)                # reconfigure a headless engine
 server.py   http.server + Server-Sent Events + REST       # stdlib only

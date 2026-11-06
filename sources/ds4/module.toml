@@ -1,0 +1,6 @@
+# Sony DualShock 4 over USB or Bluetooth HID; raw reports parsed in __init__.py.
+python = ["hidapi>=0.14.0"]
+system = [
+  "plug in over USB, or pair from the OS Bluetooth settings (hold SHARE + PS until the light bar flashes)",
+  "Linux: udev rule for hidraw access (see README.md)",
+]
