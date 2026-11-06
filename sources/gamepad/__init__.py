@@ -1,4 +1,4 @@
-"""Any gamepad — XInput, DInput, Switch Pro-style — via SDL2's game controller API
+"""Any gamepad (XInput, DInput, Switch Pro-style) via SDL2's game controller API
 (`pysdl2`, with the SDL2 library itself from `pysdl2-dll`).
 
 SDL maps every controller it knows onto one Xbox-shaped layout, so the ports are
@@ -11,8 +11,10 @@ wrong for yours (see README.md).
 Two types share the ``gamepad`` bus id, so presets work with either:
 
 * ``gamepad`` — the first controller found (or the one ``name`` matches);
-* ``pico2``   — prefers an 8BitDo Pico 2, falling back to any controller (in
+* ``zero2``   — prefers an 8BitDo Zero 2, falling back to any controller (in
   XInput mode it presents as a generic Xbox pad, with no 8BitDo name to match).
+  The Zero 2 has no sticks, and in some modes reports its d-pad as the left
+  stick's axes, so this type reads the left stick as ``dpad.*`` instead.
 
 The device is opened from the poll thread and re-found if it's unplugged, so the
 source can be added before the controller is connected.
@@ -146,7 +148,7 @@ class Gamepad(Source):
                         self._state = "disconnected"
                         continue
                     try:
-                        out = dev.read()
+                        out = self._adjust(dev.read())
                     except Exception:
                         out = None
                 if out is not None:
@@ -157,6 +159,10 @@ class Gamepad(Source):
                 if dev is not None:
                     dev.close()
                 sdl2.SDL_QuitSubSystem(flags)
+
+    def _adjust(self, out):
+        """Per-device fix-ups to a reading; none for a generic pad."""
+        return out
 
     def _publish(self, out):
         with self._lock:
@@ -188,10 +194,20 @@ class Gamepad(Source):
 
 
 @register_source
-class Pico2(Gamepad):
-    type = "pico2"
-    label = "8BitDo Pico 2"
-    PREFER = (0x2DC8, ("8bitdo", "pico"))   # 8BitDo's USB vendor id
+class Zero2(Gamepad):
+    type = "zero2"
+    label = "8BitDo Zero 2"
+    PREFER = (0x2DC8, ("8bitdo", "zero"))   # 8BitDo's USB vendor id
+
+    def _adjust(self, out):
+        # No sticks on a Zero 2: left-stick movement is its d-pad (DInput/Mac modes).
+        lx, ly = out["stick.lx"], out["stick.ly"]
+        for port, pressed in (("dpad.right", lx > 0.5), ("dpad.left", lx < -0.5),
+                              ("dpad.up", ly > 0.5), ("dpad.down", ly < -0.5)):
+            if pressed:
+                out[port] = 1.0
+        out["stick.lx"] = out["stick.ly"] = 0.0
+        return out
 
 
 # ----------------------------------------------------------------- device readers

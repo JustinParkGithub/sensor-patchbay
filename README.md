@@ -234,7 +234,7 @@ README covers what pip can't do.
 | `bend4` | source | Arduino Nano + four flex sensors over USB serial | [sources/bend4/](sources/bend4/) |
 | `cv` | source | webcam hand tracking (OpenCV + MediaPipe) | [sources/cv/](sources/cv/README.md) |
 | `gamepad` | source | any XInput / DInput / Switch-style controller (SDL2) | [sources/gamepad/](sources/gamepad/README.md) |
-| `pico2` | source | 8BitDo Pico 2 (falls back to any controller), same ports as `gamepad` | [sources/gamepad/](sources/gamepad/README.md) |
+| `zero2` | source | 8BitDo Zero 2 (falls back to any controller), same ports as `gamepad` | [sources/gamepad/](sources/gamepad/README.md) |
 | `hid` | sink | virtual mouse + keyboard (pynput) | see **Ports** |
 | `dryrun` | sink | logging-only stand-in for `hid` | — |
 | `gpio` | sink | Raspberry Pi PWM + digital out | [sinks/gpio/](sinks/gpio/) |
@@ -376,17 +376,18 @@ runs a preset as a fixed appliance.
 | `gyro.x` | scale · deadzone · expo · scale · invert · clamp | `mouse.dy` |
 | `accel.mag` | threshold 2.2 g · debounce 500 ms · hold | `mouse.left` (shake to click) |
 
-**`gamepad-mouse-keyboard.json`** — any controller (`gamepad` or `pico2`) as mouse + keyboard
+**`gamepad-mouse-keyboard.json`** — 8BitDo Zero 2 (`zero2`) or any controller (`gamepad`) as keyboard + mouse
 
 | source | chain | sink |
 |---|---|---|
-| `stick.rx` / `stick.ry` | deadzone 0.12 · expo · scale 1400 (· invert for y) | `mouse.dx` / `mouse.dy` |
-| `btn.rt` / `btn.lt` / `btn.rs` | — | `mouse.left` / `mouse.right` / `mouse.middle` |
-| `btn.lb` / `btn.rb` | — | `mouse.btn_back` / `mouse.btn_forward` |
-| `stick.lx` / `stick.ly` | schmitt ±0.5/±0.35 | `key.a` `key.d` / `key.s` `key.w` |
 | `dpad.*` | — | `key.up/down/left/right` |
 | `btn.a` / `btn.b` / `btn.x` / `btn.y` / `btn.start` | — | `key.space` / `key.esc` / `key.e` / `key.tab` / `key.enter` |
-| `btn.back` | — | `sys/preset.cycle` |
+| `btn.lb` / `btn.rb` (L / R) | — | `mouse.left` / `mouse.right` |
+| `btn.back` (Select) | — | `sys/preset.cycle` |
+| *full-size pads only:* | | |
+| `stick.lx` / `stick.ly` | schmitt ±0.5/±0.35 | `key.left/right` / `key.down/up` |
+| `stick.rx` / `stick.ry` | deadzone 0.12 · expo · scale 1400 (· invert for y) | `mouse.dx` / `mouse.dy` |
+| `btn.rt` / `btn.lt` / `btn.rs` | — | `mouse.left` / `mouse.right` / `mouse.middle` |
 
 Raw Joy-Con sensor units are arbitrary but stable — tune magnitudes with a
 `scale` node in the preset, never in the plugin, so a preset built against the

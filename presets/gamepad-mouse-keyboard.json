@@ -1,10 +1,46 @@
 {
   "name": "gamepad-mouse-keyboard",
   "requires": [
-    {"id": "gamepad", "kind": "source", "types": ["gamepad", "pico2"]},
+    {"id": "gamepad", "kind": "source", "types": ["gamepad", "zero2"]},
     {"id": "hid", "kind": "sink", "types": ["dryrun", "hid"]}
   ],
   "connections": [
+    {"id": "g_up", "source": "gamepad/dpad.up", "sink": "hid/key.up", "chain": []},
+    {"id": "g_down", "source": "gamepad/dpad.down", "sink": "hid/key.down", "chain": []},
+    {"id": "g_lft", "source": "gamepad/dpad.left", "sink": "hid/key.left", "chain": []},
+    {"id": "g_rgt", "source": "gamepad/dpad.right", "sink": "hid/key.right", "chain": []},
+    {"id": "g_space", "source": "gamepad/btn.a", "sink": "hid/key.space", "chain": []},
+    {"id": "g_esc", "source": "gamepad/btn.b", "sink": "hid/key.esc", "chain": []},
+    {"id": "g_e", "source": "gamepad/btn.x", "sink": "hid/key.e", "chain": []},
+    {"id": "g_tab", "source": "gamepad/btn.y", "sink": "hid/key.tab", "chain": []},
+    {"id": "g_left", "source": "gamepad/btn.lb", "sink": "hid/mouse.left", "chain": []},
+    {"id": "g_right", "source": "gamepad/btn.rb", "sink": "hid/mouse.right", "chain": []},
+    {"id": "g_enter", "source": "gamepad/btn.start", "sink": "hid/key.enter", "chain": []},
+    {"id": "g_preset", "source": "gamepad/btn.back", "sink": "sys/preset.cycle", "chain": []},
+    {
+      "id": "g_ls_up",
+      "source": "gamepad/stick.ly",
+      "sink": "hid/key.up",
+      "chain": [{"type": "schmitt", "params": {"on": 0.5, "off": 0.35}}]
+    },
+    {
+      "id": "g_ls_down",
+      "source": "gamepad/stick.ly",
+      "sink": "hid/key.down",
+      "chain": [{"type": "schmitt", "params": {"on": -0.5, "off": -0.35}}]
+    },
+    {
+      "id": "g_ls_left",
+      "source": "gamepad/stick.lx",
+      "sink": "hid/key.left",
+      "chain": [{"type": "schmitt", "params": {"on": -0.5, "off": -0.35}}]
+    },
+    {
+      "id": "g_ls_right",
+      "source": "gamepad/stick.lx",
+      "sink": "hid/key.right",
+      "chain": [{"type": "schmitt", "params": {"on": 0.5, "off": 0.35}}]
+    },
     {
       "id": "g_dx",
       "source": "gamepad/stick.rx",
@@ -26,44 +62,8 @@
         {"type": "invert", "params": {}}
       ]
     },
-    {"id": "g_left", "source": "gamepad/btn.rt", "sink": "hid/mouse.left", "chain": []},
-    {"id": "g_right", "source": "gamepad/btn.lt", "sink": "hid/mouse.right", "chain": []},
-    {"id": "g_middle", "source": "gamepad/btn.rs", "sink": "hid/mouse.middle", "chain": []},
-    {"id": "g_back", "source": "gamepad/btn.lb", "sink": "hid/mouse.btn_back", "chain": []},
-    {"id": "g_forward", "source": "gamepad/btn.rb", "sink": "hid/mouse.btn_forward", "chain": []},
-    {
-      "id": "g_d",
-      "source": "gamepad/stick.lx",
-      "sink": "hid/key.d",
-      "chain": [{"type": "schmitt", "params": {"on": 0.5, "off": 0.35}}]
-    },
-    {
-      "id": "g_a",
-      "source": "gamepad/stick.lx",
-      "sink": "hid/key.a",
-      "chain": [{"type": "schmitt", "params": {"on": -0.5, "off": -0.35}}]
-    },
-    {
-      "id": "g_w",
-      "source": "gamepad/stick.ly",
-      "sink": "hid/key.w",
-      "chain": [{"type": "schmitt", "params": {"on": 0.5, "off": 0.35}}]
-    },
-    {
-      "id": "g_s",
-      "source": "gamepad/stick.ly",
-      "sink": "hid/key.s",
-      "chain": [{"type": "schmitt", "params": {"on": -0.5, "off": -0.35}}]
-    },
-    {"id": "g_up", "source": "gamepad/dpad.up", "sink": "hid/key.up", "chain": []},
-    {"id": "g_down", "source": "gamepad/dpad.down", "sink": "hid/key.down", "chain": []},
-    {"id": "g_lft", "source": "gamepad/dpad.left", "sink": "hid/key.left", "chain": []},
-    {"id": "g_rgt", "source": "gamepad/dpad.right", "sink": "hid/key.right", "chain": []},
-    {"id": "g_space", "source": "gamepad/btn.a", "sink": "hid/key.space", "chain": []},
-    {"id": "g_esc", "source": "gamepad/btn.b", "sink": "hid/key.esc", "chain": []},
-    {"id": "g_e", "source": "gamepad/btn.x", "sink": "hid/key.e", "chain": []},
-    {"id": "g_tab", "source": "gamepad/btn.y", "sink": "hid/key.tab", "chain": []},
-    {"id": "g_enter", "source": "gamepad/btn.start", "sink": "hid/key.enter", "chain": []},
-    {"id": "g_preset", "source": "gamepad/btn.back", "sink": "sys/preset.cycle", "chain": []}
+    {"id": "g_rt", "source": "gamepad/btn.rt", "sink": "hid/mouse.left", "chain": []},
+    {"id": "g_lt", "source": "gamepad/btn.lt", "sink": "hid/mouse.right", "chain": []},
+    {"id": "g_middle", "source": "gamepad/btn.rs", "sink": "hid/mouse.middle", "chain": []}
   ]
 }

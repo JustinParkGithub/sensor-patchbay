@@ -1,4 +1,4 @@
-# Sources `gamepad` and `pico2` — XInput / DInput controllers, 8BitDo Pico 2
+# Sources `gamepad` and `zero2` — XInput / DInput controllers, 8BitDo Zero 2
 
 Reads any game controller through SDL2's game controller API (`pysdl2`, with the
 SDL2 library from `pysdl2-dll`). Both packages come from
@@ -7,37 +7,55 @@ SDL2 library from `pysdl2-dll`). Both packages come from
 | type | picks |
 |---|---|
 | `gamepad` | the first controller found, or the first whose name contains `name=` |
-| `pico2` | an 8BitDo Pico 2 (USB vendor `2DC8`, or "8BitDo" in its name), else any controller |
+| `zero2` | an 8BitDo Zero 2 (USB vendor `2DC8`, or "8BitDo"/"Zero" in its name), else any controller |
 
 Both put their ports under the same `gamepad` id, so a preset built with one runs
 on the other. `index=` picks the second, third, … match. The source can be added
 before the controller is connected: it shows `searching` until one appears, and
-goes back to searching if it's unplugged.
+goes back to searching if it's disconnected.
 
 ## Connecting
 
-USB or Bluetooth, in any of the controller's modes (on 8BitDo pads the mode is
-picked with a switch or a button held at power-on — see its manual):
+USB or Bluetooth, in any of the controller's gamepad modes.
 
-- **XInput** — every OS sees an Xbox pad. On Windows
-  this is the most reliable mode. The 8BitDo name isn't visible in this mode, so
-  `pico2` falls back to the first controller.
-- **DInput** — read through SDL's controller database;
-  a pad SDL doesn't know is read raw (see below).
-- **Switch** — read through SDL's Switch driver, which
-  also provides `accel.*` / `gyro.*` if the controller has motion sensors.
+- **XInput**: every OS sees an Xbox pad. On Windows this is the most reliable
+  mode.
+- **DInput**: read through SDL's controller database; a pad SDL doesn't know is
+  read raw (see below).
+- **Switch**: read through SDL's Switch driver, which also provides `accel.*` /
+  `gyro.*` if the controller has motion sensors.
 
-On **Linux** your user needs read access to `/dev/input/event*` — most desktops
+On **Linux** your user needs read access to `/dev/input/event*`. Most desktops
 grant it to the logged-in user already; otherwise add yourself to the `input`
 group. On **macOS** and **Windows** nothing extra is needed.
 
 Input is read in the background, so it reaches the patchbay while another app
 has focus.
 
+## 8BitDo Zero 2
+
+The Zero 2 pairs over Bluetooth. Pick the mode by holding a button while
+pressing **Start** to turn it on, then hold **Select** for 3 seconds to pair:
+
+| hold | mode |
+|---|---|
+| Start + X | XInput (Windows) — the 8BitDo name isn't visible here, so `zero2` falls back to the first controller |
+| Start + B | DInput (Android) |
+| Start + A | macOS |
+| Start + Y | Switch |
+
+Its keyboard mode makes it a keyboard rather than a controller, so neither
+source sees it; use a gamepad mode.
+
+It has a d-pad, A/B/X/Y, L/R, Select and Start: no sticks, analog triggers or
+motion sensors. In some modes it reports the d-pad as left-stick axes, so the
+`zero2` type turns the left stick into `dpad.*` and leaves `stick.lx/ly` at 0.
+L/R arrive as `btn.lb`/`btn.rb`, Select as `btn.back`.
+
 ## Ports
 
 Positional, Xbox-shaped: `btn.a` is the *bottom* face button whatever is printed
-on it (so on a Nintendo-layout pad it's the one labelled B).
+on it (so on a Nintendo-layout pad like the Zero 2 it's the one labelled B).
 
 | port | type | |
 |---|---|---|
@@ -61,5 +79,6 @@ line (generate one with the
 
 ## Preset
 
-[`gamepad-mouse-keyboard.json`](../../presets/gamepad-mouse-keyboard.json) drives
-the mouse and keyboard from the pad; see the main README.
+[`gamepad-mouse-keyboard.json`](../../presets/gamepad-mouse-keyboard.json) is
+built around the Zero 2's buttons, with sticks and triggers mapped too for
+full-size pads; see the main README.
