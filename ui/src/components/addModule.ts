@@ -65,12 +65,16 @@ export function addModule(kind: ModuleKind): HTMLElement {
     }
     button.disabled = !current?.available || busy
     button.textContent = busy ? '…' : `+ add ${kind}`
-    reason.textContent = current && !current.available ? current.reason : ''
+    reason.textContent = !list.length
+      ? `no ${kind}s installed — upload a module (.zip), or ⟳ sync`
+      : current && !current.available
+        ? current.reason
+        : ''
     root.replaceChildren(
       select,
       ...(fields.length ? [argsBox] : []),
       button,
-      ...(current && !current.available ? [reason] : []),
+      ...(reason.textContent ? [reason] : []),
     )
   }
 

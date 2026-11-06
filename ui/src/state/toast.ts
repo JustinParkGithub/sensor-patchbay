@@ -8,7 +8,7 @@ const TOAST_MS = 2400
 const element = h('div', { id: 'toast', hidden: true })
 let timer: ReturnType<typeof setTimeout> | undefined
 
-export function toast(text: string, bad = false): void {
+export function toast(text: string, bad = false, ms = TOAST_MS): void {
   if (!element.isConnected) document.body.append(element)
   element.textContent = text
   element.className = bad ? 'bad' : ''
@@ -16,7 +16,7 @@ export function toast(text: string, bad = false): void {
   clearTimeout(timer)
   timer = setTimeout(() => {
     element.hidden = true
-  }, TOAST_MS)
+  }, ms)
 }
 
 /** Report a rejected promise without tearing down the UI. */

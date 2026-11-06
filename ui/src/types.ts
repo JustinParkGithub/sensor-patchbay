@@ -91,10 +91,50 @@ export interface PluginCatalog {
   sinks: PluginInfo[]
 }
 
+/**
+ * A bus namespace a preset patches into, and the plugin types that can fill it
+ * (see `engine/presets.py`). Written into the preset file on every save.
+ */
+export interface PresetRequirement {
+  id: string
+  kind: ModuleKind
+  types: string[]
+}
+
+/** A requirement no installed, runnable module meets. */
+export interface MissingRequirement extends PresetRequirement {
+  reason: string
+}
+
+export interface PresetInfo {
+  requires: PresetRequirement[]
+  missing: MissingRequirement[]
+  /** Set when the file couldn't be read. */
+  error?: string
+}
+
+export type PresetInfoMap = Record<string, PresetInfo>
+
+/** What `POST /api/sync` did, for the sync button's report. */
+export interface SyncReport {
+  /** Every message the module sync printed (installs, import failures, ...). */
+  log: string[]
+  /** Setup steps pip can't do, per enabled module. */
+  notes: { module: string; note: string }[]
+  sources: number
+  sinks: number
+}
+
+/** `POST /api/upload` — one file written into the data folder. */
+export type UploadResult =
+  | { ok: true; kind: 'preset'; name: string; replaced: boolean; missing: MissingRequirement[] }
+  | { ok: true; kind: 'module'; name: string; module_kind: ModuleKind; replaced: boolean; path: string }
+
 /** `GET /api/state` — everything that only changes when the graph is reloaded. */
 export interface EngineState {
   preset: string
   presets: string[]
+  preset_info: PresetInfoMap
   panic: boolean
   rate: number
   modules: ModuleSpec[]

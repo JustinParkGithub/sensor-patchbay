@@ -33,7 +33,85 @@ Python packages it needs, and the environment is kept to exactly that set (see
 
 ---
 
-## Quick start
+## Installation
+
+There are two ways to run it, and both include the command-line console:
+
+| | what you get | modules & presets |
+|---|---|---|
+| **Desktop app** | one download, no Python needed: a native window plus a tray icon | none bundled; you upload the ones you want |
+| **From source** | `python run.py` in a checkout; the patch panel in your browser | every folder in `sources/`, `sinks/`, `presets/` |
+
+### Desktop app
+
+Build it per platform (PyInstaller can't cross-compile), or take the build from
+the **Desktop app** GitHub Actions workflow (run it from the Actions tab, or push
+a `v*` tag; each OS's build is attached to the run):
+
+```bash
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r packaging/requirements.txt         # PyInstaller, pywebview, pystray, Pillow, uv
+pyinstaller packaging/sensor-patchbay.spec
+```
+
+| platform | output | notes |
+|---|---|---|
+| Windows | `dist/sensor-patchbay/SensorPatchbay.exe` | uses the WebView2 runtime that ships with Windows 10/11 |
+| macOS | `dist/Sensor Patchbay.app` | unsigned: right-click → Open the first time; the `hid` sink still needs Accessibility |
+| Linux | `dist/sensor-patchbay/SensorPatchbay` | build with system WebKitGTK + PyGObject (see `packaging/requirements.txt`); the tray needs AppIndicator on GNOME |
+
+Launch it, and the patch panel opens in its own window with an icon in the tray
+(menu bar on macOS). **Closing the window keeps the engine running.** The tray
+menu brings it back, opens it in a browser, toggles PANIC, opens the data folder,
+and quits. Starting it again while it's running just opens the running one.
+
+The app **ships with no modules and no presets**, not even `mock`. Add them from
+the patch panel (**Upload…**, or drop files on the window; see
+[Adding modules & presets](#adding-modules--presets)). For example, zip any folder
+from this repo:
+
+```bash
+cd sources && zip -r ~/mock.zip mock      # and joycon (mock depends on it), bmi160, ...
+cd sinks   && zip -r ~/hid.zip hid        # dryrun needs hid too
+```
+
+Then upload `presets/*.json` for presets. Everything you add lives in a per-user
+data folder, so updating the app keeps it:
+
+| | data folder |
+|---|---|
+| Linux | `~/.local/share/sensor-patchbay/` (`$XDG_DATA_HOME`) |
+| macOS | `~/Library/Application Support/sensor-patchbay/` |
+| Windows | `%APPDATA%\sensor-patchbay\` |
+
+It holds `sources/`, `sinks/`, `presets/`, `patchbay.toml` (same format as
+below), `patchbay.lock`, and `site-packages/`. The last one holds the Python
+packages your modules declare. The app's bundled `uv` installs them on sync, so
+the first sync of a module with packages needs the network. A package with no
+prebuilt wheel for your platform is compiled with a uv-managed Python. If that
+fails (e.g. no compiler), only the modules that need it are unavailable. Set
+`PATCHBAY_HOME` to use another folder; that also works with `python run.py` or
+`python app.py` from source.
+
+#### Command line, from the app
+
+The app folder holds a second executable, `patchbay` (`patchbay.exe`; inside the
+macOS bundle at `Sensor Patchbay.app/Contents/MacOS/patchbay`). It is a console
+program that takes every flag from the table below and uses the same data folder:
+
+```bash
+patchbay --cli                 # web UI on :8420 + the patchbay> console, no window
+patchbay --no-ui --cli         # console only (headless / over SSH)
+patchbay --list-sources        # what's installed, and why anything is unavailable
+patchbay --sync                # install uploaded modules' packages, print setup notes
+patchbay                       # no console flags: the window + tray, like the app
+```
+
+`SensorPatchbay` takes the same flags, plus `--browser` (patch panel in your
+browser instead of a window) and `--no-tray` (closing the window quits). On
+Windows only `patchbay.exe` has a console to type into, so use it for `--cli`.
+
+### From source
 
 ```bash
 cd sensor-patchbay
@@ -46,7 +124,13 @@ python run.py                                     # installs every module's pack
 
 python run.py --mock --dry-run                    # no hardware, no real input events — just explore
 python run.py --sink hid --mock --preset mouse    # real mouse/keyboard, synthetic source, air-mouse
+python app.py                                     # the desktop app's window + tray, from source
+                                                  #   (pip install -r packaging/requirements.txt)
 ```
+
+`run.py` is the command-line entry point: `--cli` adds the console, and
+`--no-ui --cli` runs without the browser UI (see
+[the CLI console](#reconfiguring-from-the-device-itself-the-cli-console)).
 
 The engine starts with **no sources or sinks** — you add them live from the GUI's
 *add source / add sink* dropdowns (or the `--cli` console), which is the point:
@@ -150,6 +234,8 @@ README covers what pip can't do.
 | `bmi160` | source | Arduino Nano + BMI160 IMU over USB serial | [sources/bmi160/](sources/bmi160/README.md) |
 | `bend4` | source | Arduino Nano + four flex sensors over USB serial | [sources/bend4/](sources/bend4/) |
 | `cv` | source | webcam hand tracking (OpenCV + MediaPipe) | [sources/cv/](sources/cv/README.md) |
+| `gamepad` | source | any XInput / DInput / Switch-style controller (SDL2) | [sources/gamepad/](sources/gamepad/README.md) |
+| `zero2` | source | 8BitDo Zero 2 (falls back to any controller), same ports as `gamepad` | [sources/gamepad/](sources/gamepad/README.md) |
 | `hid` | sink | virtual mouse + keyboard (pynput) | see **Ports** |
 | `dryrun` | sink | logging-only stand-in for `hid` | — |
 | `gpio` | sink | Raspberry Pi PWM + digital out | [sinks/gpio/](sinks/gpio/) |
@@ -177,12 +263,46 @@ middle. Nothing loads from the internet.
   reason. Each module header has an **✕** to remove it (its cables go with it).
 - **Presets** — the dropdown + Load / Save / Save as / New / Delete. A preset is
   the whole graph, saved to `presets/<name>.json`. Diff them, copy them, hand-edit
-  them.
+  them. A preset that needs a source or sink you don't have is marked **⚠** in
+  the dropdown. The badge beside it says which (hover it for why), and loading
+  it warns too. See [Preset dependencies](#preset-dependencies).
+- **Upload… / ⟳ Sync** — add modules and presets, and re-read what's on disk.
+  See [Adding modules & presets](#adding-modules--presets).
 - **Rate** — the `Hz` box in the top bar sets the engine tick rate live.
 - **PANIC** — disables every output instantly and releases held keys/buttons.
   Patch any button to `sys/panic.toggle` to get the same switch on hardware.
 - Mapping `joycon/btn.home → sys/preset.cycle` (both shipped presets do this) makes
   the Home button walk through your preset files.
+
+### Adding modules & presets
+
+**Upload…** in the top bar takes a **module** as a `.zip` of its folder, or a
+**preset** as a `.json` file. You can pick several at once, or drop files anywhere
+on the window. After uploading, the panel syncs on its own. New sources and sinks
+then show up in the *add* dropdowns, and new presets in the preset list.
+Uploading a module or preset that already exists replaces it.
+
+- A module zip holds one module folder (`mock/__init__.py`, `mock/module.toml`,
+  ...). The files can also sit at the top of the zip, which then names the
+  module, or under `sources/` / `sinks/`. Outside those, `module.toml` must say
+  `kind = "source"` or `"sink"`; every module in this repo does.
+- Uploads go to the data folder: the repo itself when running from source, the
+  per-user folder in the app.
+
+**⟳ Sync** re-reads everything on disk without a restart. It finds module
+folders, installs the packages their `module.toml` lists, imports new modules,
+and re-imports ones whose files changed. It also drops modules that were deleted
+or disabled from the menus, and re-checks every preset's dependencies. Use it
+after copying a folder in by hand, editing a module, or changing `patchbay.toml`.
+A toast sums up the result. Hover the button for the full log, including each
+module's setup steps that pip can't do. Instances that are already running keep
+running; remove and re-add one to pick up a reloaded module. In the console,
+`install <file>` and `sync` do the same.
+
+Installing a module runs its code, so the server refuses upload, sync and other
+changes from any page that isn't the patch panel itself. It also refuses
+requests that reach it under an unexpected host name, which blocks DNS
+rebinding. It only listens on `127.0.0.1` unless you pass `--host`.
 
 ### Type rules
 
@@ -211,6 +331,8 @@ patchbay> add sink gpio pwm_pins=18,13  # add a module live
 patchbay> ports                         # list every jack on the bus
 patchbay> connect bmi160/tilt.roll gpio/pwm.0
 patchbay> save my-rig                   # write presets/my-rig.json
+patchbay> install ~/hid.zip             # add a module (or a preset .json), then sync
+patchbay> sync                          # re-read modules + presets from disk
 patchbay> panic on                      # cut all outputs
 patchbay> help
 ```
@@ -255,6 +377,19 @@ runs a preset as a fixed appliance.
 | `gyro.x` | scale · deadzone · expo · scale · invert · clamp | `mouse.dy` |
 | `accel.mag` | threshold 2.2 g · debounce 500 ms · hold | `mouse.left` (shake to click) |
 
+**`gamepad-mouse-keyboard.json`** — 8BitDo Zero 2 (`zero2`) or any controller (`gamepad`) as keyboard + mouse
+
+| source | chain | sink |
+|---|---|---|
+| `dpad.*` | — | `key.up/down/left/right` |
+| `btn.a` / `btn.b` / `btn.x` / `btn.y` / `btn.start` | — | `key.space` / `key.esc` / `key.e` / `key.tab` / `key.enter` |
+| `btn.lb` / `btn.rb` (L / R) | — | `mouse.left` / `mouse.right` |
+| `btn.back` (Select) | — | `sys/preset.cycle` |
+| *full-size pads only:* | | |
+| `stick.lx` / `stick.ly` | schmitt ±0.5/±0.35 | `key.left/right` / `key.down/up` |
+| `stick.rx` / `stick.ry` | deadzone 0.12 · expo · scale 1400 (· invert for y) | `mouse.dx` / `mouse.dy` |
+| `btn.rt` / `btn.lt` / `btn.rs` | — | `mouse.left` / `mouse.right` / `mouse.middle` |
+
 **`ds4-mouse.json`** — DualShock 4 as a mouse
 
 | source | chain | sink |
@@ -272,6 +407,27 @@ runs a preset as a fixed appliance.
 Raw Joy-Con sensor units are arbitrary but stable — tune magnitudes with a
 `scale` node in the preset, never in the plugin, so a preset built against the
 mock source works unchanged on real hardware.
+
+### Preset dependencies
+
+A preset patches into bus namespaces (`joycon/…`, `hid/…`). A namespace is an
+instance id, not a plugin type, so each preset lists which types can fill each
+namespace it uses:
+
+```json
+"requires": [
+  {"id": "joycon", "kind": "source", "types": ["joycon", "mock"]},
+  {"id": "hid",    "kind": "sink",   "types": ["dryrun", "hid"]}
+]
+```
+
+**Save** writes this list. It includes the type running under each namespace,
+every installed type whose default id matches, and whatever the file already
+listed, so hand-added alternatives survive a save. A requirement is met when at
+least one of its types is installed and available. Otherwise the panel flags
+the preset (*not installed*, or *installed but unavailable* with the reason),
+and so do `presets` and `load` in the console. A preset without `requires` is
+checked against the namespaces its connections use.
 
 ---
 
@@ -397,16 +553,19 @@ to copy.
 ```
 engine/     signals.py nodes.py graph.py loop.py registry.py   # portable core: bus, transforms, routing, tick, plugin registry
             modules.py                                     # module manifests, patchbay.lock, environment sync
-sources/    base.py  joycon/ mock/ ds4/ bmi160/ bend4/ cv/ # one folder per source type (code + module.toml + firmware/assets)
+            paths.py library.py presets.py                 # data folder, uploads + sync, preset dependencies
+sources/    base.py  joycon/ mock/ bmi160/ bend4/ cv/ ds4/ gamepad/  # one folder per source type (code + module.toml + firmware/assets)
 sinks/      base.py  hid/ dryrun/ gpio/                    # one folder per sink type
 patchbay.toml                                              # rig config: disable / autostart / core packages
 patchbay.lock                                              # generated: exact package set for the enabled modules
 ui/         src/ (plain TS)    dist/ (committed build)    # patch panel — see ui/README.md
-presets/    mouse.json  keyboard.json  bmi160-mouse.json  bend4-mouse-keyboard.json  ds4-mouse.json
+presets/    mouse.json  keyboard.json  bmi160-mouse.json  bend4-mouse-keyboard.json  gamepad-mouse-keyboard.json  ds4-mouse.json
 docs/       OVERVIEW.md  SPECIFICATION.md                  # informal + formal docs
 control.py  interactive CLI console (--cli)                # reconfigure a headless engine
 server.py   http.server + Server-Sent Events + REST       # stdlib only
-run.py      entrypoint
+run.py      entrypoint (and the command line)
+app.py      desktop app: native window + tray around run.py's startup
+packaging/  sensor-patchbay.spec  requirements.txt         # PyInstaller build of the desktop app
 ```
 
 ## Notes

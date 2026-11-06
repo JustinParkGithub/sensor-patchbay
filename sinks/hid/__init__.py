@@ -19,6 +19,8 @@ debounce pulse still registers in the target application.
 
 from __future__ import annotations
 
+import sys
+import threading
 import time
 
 from engine.registry import register_sink
@@ -32,6 +34,40 @@ _KEYNAMES = [
     "cmd", "up", "down", "left", "right", "home", "end", "page_up", "page_down",
     "f1", "f2", "f3", "f4", "f5",
 ]
+
+
+def _on_main_thread(fn, timeout=5.0):
+    """Call *fn* on the main thread when a Cocoa app owns it, else right here.
+
+    On macOS, pynput's keyboard Controller reads the keyboard layout through
+    HIToolbox, which aborts the whole process (SIGTRAP) when called off the
+    main thread while an NSApplication exists, i.e. under app.py's window or
+    tray. Headless (run.py) there is no app and any thread is fine.
+    """
+    if sys.platform != "darwin" or threading.current_thread() is threading.main_thread():
+        return fn()
+    from AppKit import NSApp
+    if NSApp() is None:
+        return fn()
+    from PyObjCTools import AppHelper
+
+    done = threading.Event()
+    result = {}
+
+    def call():
+        try:
+            result["value"] = fn()
+        except BaseException as e:  # re-raised on the calling thread
+            result["error"] = e
+        finally:
+            done.set()
+
+    AppHelper.callAfter(call)
+    if not done.wait(timeout):
+        raise TimeoutError("main thread busy; couldn't create the keyboard controller")
+    if "error" in result:
+        raise result["error"]
+    return result["value"]
 
 
 @register_sink
@@ -86,7 +122,7 @@ class MouseKeyboardSink(Sink):
             self._err = f"pynput unavailable: {e}"
             raise
         self._mouse = MouseC()
-        self._kbd = KbdC()
+        self._kbd = _on_main_thread(KbdC)
         self._Button = Button
         self._Key = Key
 

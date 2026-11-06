@@ -2,9 +2,12 @@ import { h, setChildren } from '../lib/dom'
 import { jacks } from '../state/jacks'
 import { patchbay } from '../state/patchbay'
 import type { PatchbayState } from '../state/patchbay'
+import { zoom } from '../state/zoom'
 import type { ModuleKind, ModuleSpec } from '../types'
 import { addModule } from './addModule'
 import { cables } from './cables'
+import { floatingCards, placeCard } from './floating'
+import { bindZoom } from './zoom'
 import { startMeters } from './meters'
 import { moduleCard } from './moduleCard'
 import type { ModuleCard } from './moduleCard'
@@ -15,19 +18,29 @@ interface CachedCard extends ModuleCard {
   signature: string
 }
 
-/** Sources on the left, sinks on the right, cables in between. */
+/**
+ * Sources on the left, sinks on the right, cables in between — and any card
+ * dragged out of its column floating wherever it was dropped.
+ *
+ * `#patch` is the scroll container; inside it the cable layer, and the stage
+ * that holds the columns and floating cards and is scaled by the zoom.
+ */
 export function patchArea(): HTMLElement {
   const sourceList = h('div', { className: 'modules', id: 'srcMods' })
   const sinkList = h('div', { className: 'modules', id: 'sinkMods' })
 
-  const surface = h(
-    'main',
-    { id: 'patch' },
+  const stage = h(
+    'div',
+    { className: 'stage' },
     column('sources', 'source', 'Sources', sourceList),
     column('sinks', 'sink', 'Sinks', sinkList),
   )
+  const surface = h('main', { id: 'patch' }, stage)
   surface.prepend(cables(surface))
+  bindZoom(surface)
   startMeters()
+  const floating = floatingCards(stage, () => zoom.scale, () => fileCards())
+  stage.append(floating.layer)
 
   // Cards are keyed by module id and rebuilt only when that module's spec
   // changes — the module list is re-read often (any add/remove, from any
@@ -39,20 +52,36 @@ export function patchArea(): HTMLElement {
     for (const module of modules) {
       const signature = JSON.stringify(module)
       const existing = cards.get(module.id)
-      next.set(
-        module.id,
-        existing?.signature === signature
-          ? existing
-          : { ...moduleCard(module), kind: module.kind, signature },
-      )
+      if (existing?.signature === signature) {
+        next.set(module.id, existing)
+        continue
+      }
+      const card = { ...moduleCard(module), kind: module.kind, signature }
+      floating.attach(card.element, module.id)
+      next.set(module.id, card)
     }
     for (const [id, card] of cards) if (next.get(id) !== card) card.dispose()
     cards = next
+    fileCards()
+  }
 
-    const of = (kind: ModuleKind) =>
-      [...next.values()].filter((card) => card.kind === kind).map((card) => card.element)
-    setChildren(sourceList, of('source'))
-    setChildren(sinkList, of('sink'))
+  /** Docked cards into their columns, floating ones onto the float layer. */
+  const fileCards = () => {
+    for (const [id, card] of cards) {
+      if (floating.isFloating(id)) card.element.classList.add('floating')
+      else placeCard(card.element, undefined)
+    }
+    const docked = (kind: ModuleKind) =>
+      [...cards]
+        .filter(([id, card]) => card.kind === kind && !floating.isFloating(id))
+        .map(([, card]) => card.element)
+    setChildren(sourceList, docked('source'))
+    setChildren(sinkList, docked('sink'))
+    setChildren(
+      floating.layer,
+      floating.order().flatMap((id) => cards.get(id)?.element ?? []),
+    )
+    floating.settle()
   }
 
   const paintJacks = ({ wired, armed, compatible }: Readonly<PatchbayState>) => {

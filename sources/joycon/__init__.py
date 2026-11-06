@@ -12,6 +12,7 @@ node rather than here, so your mappings stay portable to the mock source.
 from __future__ import annotations
 
 import math
+import sys
 import threading
 import time
 
@@ -41,6 +42,38 @@ GYRO_DPS_PER_LSB = 0.06103
 STICK_HALF_RANGE = 1400.0
 
 
+def _import_pyjoycon():
+    """Import ``pyjoycon`` with its ``hid`` backend first imported on a thread
+    that lives as long as the process.
+
+    On macOS, importing ``hid`` starts hidapi, which binds its HID manager to
+    the importing thread's run loop, and registers an atexit hook that closes
+    it. Imported from a thread that has since ended (an HTTP request listing
+    plugins or adding this source), that run loop is gone by then and the hook
+    kills the process on exit with SIGTRAP: every Ctrl+C / Quit. This thread
+    never ends, so the run loop outlives the hook.
+    """
+    if sys.platform == "darwin" and "hid" not in sys.modules:
+        imported = threading.Event()
+        failure = []
+
+        def owner():
+            try:
+                import hid  # noqa: F401
+            except BaseException as e:  # re-raised on the calling thread
+                failure.append(e)
+            imported.set()
+            if not failure:
+                threading.Event().wait()   # keep hidapi's run loop alive
+
+        threading.Thread(target=owner, name="hidapi", daemon=True).start()
+        imported.wait()
+        if failure:
+            raise failure[0]
+    import pyjoycon
+    return pyjoycon
+
+
 @register_source
 class JoyConR(Source):
     type = "joycon"
@@ -51,17 +84,17 @@ class JoyConR(Source):
     @classmethod
     def available(cls):
         try:
-            import pyjoycon  # noqa: F401
+            _import_pyjoycon()
         except Exception as e:
             return False, f"needs joycon-python/hidapi ({e})"
         return True
 
     def __init__(self):
-        from pyjoycon import JoyCon, get_R_id  # raises ImportError if not installed
-        ids = get_R_id()
+        pyjoycon = _import_pyjoycon()  # raises ImportError if not installed
+        ids = pyjoycon.get_R_id()
         if not ids or ids[0] is None:
             raise RuntimeError("no right Joy-Con found (is it paired and connected?)")
-        self._jc = JoyCon(*ids)
+        self._jc = pyjoycon.JoyCon(*ids)
         self._ok = True
         self._lock = threading.Lock()
         self._latest = {p.id: 0.0 for p in self.PORTS}

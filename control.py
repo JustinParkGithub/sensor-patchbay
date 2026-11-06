@@ -16,8 +16,9 @@ Type ``help`` at the prompt for the command list.
 from __future__ import annotations
 
 import shlex
+from pathlib import Path
 
-from engine import registry
+from engine import library, presets, registry
 
 
 class Console:
@@ -77,8 +78,10 @@ commands:
   connect <src.port> <sink.port> patch a cable (full ids, e.g. joycon/gyro.x hid/mouse.dx)
   disconnect <conn-id>           remove a cable
   graph                          show the current connections
-  presets                        list preset files
+  presets                        list preset files (with what each needs that's missing)
   load <name> | save [name] | delete <name>
+  install <file.zip|file.json>   add a module folder (zipped) or a preset file
+  sync                           re-read modules + presets, install module packages
   panic [on|off]                 toggle emergency stop
   rate [hz]                      show or set the engine tick rate (live)
   state                          one-line snapshot summary
@@ -146,9 +149,32 @@ commands:
             print(f"  {c['id']}  {c['source']} -> {c['sink']}   [{chain}]{flag}")
 
     def cmd_presets(self, args):
+        info = self.engine.preset_info()
         for name in self.engine.list_presets():
             mark = " *" if name == self.engine.current_preset else ""
             print(f"  {name}{mark}")
+            for m in info.get(name, {}).get("missing", []):
+                print(f"      ! needs {m['kind']} '{m['id']}': {m['reason']}")
+
+    def cmd_install(self, args):
+        if len(args) != 1:
+            print("usage: install <file.zip|file.json>")
+            return
+        path = Path(args[0]).expanduser()
+        res = library.install_upload(path.name, path.read_bytes())
+        verb = "replaced" if res["replaced"] else "installed"
+        if res["kind"] == "preset":
+            print(f"{verb} preset '{res['name']}'")
+            for m in res["missing"]:
+                print(f"  ! needs {m['kind']} '{m['id']}': {m['reason']}")
+        else:
+            print(f"{verb} {res['module_kind']} '{res['name']}'; syncing...")
+            self.cmd_sync([])
+
+    def cmd_sync(self, args):
+        report = library.sync()      # prints its own log as it goes
+        print(f"synced: {report['sources']} source type(s), {report['sinks']} sink type(s), "
+              f"{len(self.engine.list_presets())} preset(s)")
 
     def cmd_load(self, args):
         if not args:
@@ -156,6 +182,8 @@ commands:
             return
         self.engine.load_preset(args[0])
         print(f"loaded {args[0]}")
+        for m in presets.missing(self.engine.read_preset(args[0])):
+            print(f"  ! needs {m['kind']} '{m['id']}': {m['reason']}")
 
     def cmd_save(self, args):
         name = args[0] if args else self.engine.current_preset

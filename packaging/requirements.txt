@@ -1,0 +1,14 @@
+# Building the desktop app (see packaging/sensor-patchbay.spec and the README).
+# The app itself installs no module packages at build time: modules are
+# uploaded later and their module.toml packages installed then, by the bundled uv.
+
+pyinstaller>=6.10
+pywebview>=5.3        # the native window (WebView2 on Windows, WebKit on macOS, GTK/Qt on Linux)
+pystray>=0.19.5       # the tray icon
+pillow>=10            # draws the tray icon
+uv>=0.7               # bundled: installs the packages uploaded modules declare
+
+# Linux only: pywebview's GTK backend needs PyGObject plus system WebKitGTK, e.g.
+#   sudo apt install libgirepository-2.0-dev libcairo2-dev gir1.2-webkit2-4.1 \
+#                    gir1.2-ayatanaappindicator3-0.1
+#   pip install PyGObject
