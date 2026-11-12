@@ -10,14 +10,14 @@ Module folders
 A module is a package folder named after its registry type, holding the plugin
 code (``__init__.py``) and a ``module.toml`` manifest::
 
-    sources/bmi160/
+    sources/bend4/
       __init__.py
       module.toml
       firmware/...
 
     # module.toml
     kind    = "source"                  # optional in-repo (the parent folder decides)
-    description = "Arduino Nano + BMI160 IMU over USB serial"   # shown in the catalog
+    description = "Arduino Nano + four flex sensors over USB serial"   # shown in the catalog
     version = "1.2.0"                   # dotted numbers; the catalog compares them
     entry   = "__init__.py"             # what runs: a .py file (default), or a native
                                         # program for engines that run plugins out of process

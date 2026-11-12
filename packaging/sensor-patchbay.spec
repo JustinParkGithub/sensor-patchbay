@@ -11,7 +11,7 @@
 #
 # What's in the bundle is the core only: the engine, the server, the console,
 # the built UI (ui/dist) and the Source/Sink base classes. No module folder and
-# no preset is bundled, not even mock; they're uploaded from the UI into the
+# no preset is bundled; they're installed from the catalog into the
 # user's data folder (engine/paths.py). Modules can import anything in the
 # standard library, which is bundled whole for that reason, plus whatever
 # their module.toml installs.

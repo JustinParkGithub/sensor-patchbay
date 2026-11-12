@@ -222,11 +222,14 @@ class Handler(BaseHTTPRequestHandler):
             name = b.get("name")
             if not isinstance(name, str) or not name:
                 return self._json({"error": "need a module name"}, 400)
+            kind = b.get("kind") if b.get("kind") in ("module", "preset") else None
             try:
                 if p.endswith("/install"):
-                    done = {"installed": module_catalog.install(name, force=bool(b.get("force")))}
+                    done = {"installed": module_catalog.install(
+                        name, force=bool(b.get("force")), kind=kind)}
                 else:
-                    done = {"removed": module_catalog.remove(name)}
+                    done = {"removed": module_catalog.remove(
+                        name, kind="preset" if kind == "preset" else None)}
             except module_catalog.Conflict as ex:
                 # The UI asks, then retries with "force": true.
                 return self._json({"error": str(ex), "conflict": True}, 409)

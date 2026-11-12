@@ -75,16 +75,17 @@ commands:
   add source <type> [k=v ...]    add a source instance (see 'plugins')
   add sink   <type> [k=v ...]    add a sink instance
   remove source <id> | remove sink <id>     drop an instance (alias: rm)
-  connect <src.port> <sink.port> patch a cable (full ids, e.g. joycon/gyro.x hid/mouse.dx)
+  connect <src.port> <sink.port> patch a cable (full ids, e.g. controller/gyro.y hid/mouse.dx)
   disconnect <conn-id>           remove a cable
   graph                          show the current connections
   presets                        list preset files (with what each needs that's missing)
   load <name> | save [name] | delete <name>
-  catalog [query] [--refresh]    search the online module catalog
-  install <name> [--force]       download a module (and what it depends on) from the catalog;
+  catalog [query] [--refresh]    search the online catalog (modules and presets)
+  install <name> [--force]       download a module (and what it depends on) or a preset (and
+                                 the modules it needs) from the catalog;
                                  --force overwrites a modified or hand-placed copy
   install <file.zip|file.json>   add a module folder (zipped) or a preset file
-  uninstall <name>               delete an installed module from the data folder
+  uninstall <name>               delete an installed module (or preset) from the data folder
   sync                           re-read modules + presets, install module packages
   panic [on|off]                 toggle emergency stop
   rate [hz]                      show or set the engine tick rate (live)
@@ -133,7 +134,7 @@ commands:
 
     def cmd_connect(self, args):
         if len(args) != 2:
-            print("usage: connect <src.port> <sink.port>   e.g. joycon/gyro.x hid/mouse.dx")
+            print("usage: connect <src.port> <sink.port>   e.g. controller/gyro.y hid/mouse.dx")
             return
         c = self.engine.add_connection(args[0], args[1])
         print(f"patched {c['id']}: {c['source']} -> {c['sink']}")
@@ -170,6 +171,7 @@ commands:
                  if all(w in f"{m['name']} {m['kind']} {m['description']}".lower() for w in words)]
         if not shown:
             print("nothing matches" if words else "the catalog is empty")
+        shown.sort(key=lambda m: m["kind"] == "preset")
         for m in shown:
             mark = {"installed": "✓", "update": "↑", "modified": "✎", "local": "·"}.get(m["state"], " ")
             ver = m["version"] or m["installed_version"] or ""
@@ -177,7 +179,7 @@ commands:
                 ver = f"{m['installed_version'] or '?'} → {m['version'] or '?'}"
             elif m["state"] in ("modified", "local", "installed") and m["installed_version"]:
                 ver = m["installed_version"]
-            print(f"  {mark} {m['kind']:6} {m['name']:10} {ver:16} {m['description']}")
+            print(f"  {mark} {m['kind']:6} {m['name']:26} {ver:16} {m['description']}")
         print(f"\n  ✓ installed  ↑ update  ✎ modified  · local only    ({listing['url']})")
 
     def cmd_install(self, args):
@@ -195,7 +197,10 @@ commands:
                 return
             for res in results:
                 verb = "updated" if res["replaced"] else "installed"
-                print(f"{verb} {res['module_kind']} '{res['name']}'")
+                what = res.get("module_kind", "preset")
+                print(f"{verb} {what} '{res['name']}'")
+                for m in res.get("missing", []):
+                    print(f"  ! needs {m['kind']} '{m['id']}': {m['reason']}")
             if results:
                 print("syncing...")
                 self.cmd_sync([])

@@ -19,7 +19,7 @@ TYPES = (SCALAR, EVENT)
 
 @dataclass
 class PortSpec:
-    id: str                       # e.g. "gyro.z"  (namespaced to "joycon/gyro.z" in the graph)
+    id: str                       # e.g. "gyro.z"  (namespaced to "controller/gyro.z" in the graph)
     type: str = SCALAR
     label: str = ""
     group: str = "misc"           # UI grouping inside a module
@@ -43,7 +43,7 @@ class ModuleSpec:
     label: str
     kind: str                     # "source" | "sink"
     ports: list = field(default_factory=list)
-    status: str = "ok"            # free-form: "ok" | "mock" | "disconnected" | "error: ..."
+    status: str = "ok"            # free-form: "ok" | "searching" | "disconnected" | "error: ..."
     preview: bool = False         # serves a live JPEG preview at /api/source/<id>/preview
 
     def to_dict(self):

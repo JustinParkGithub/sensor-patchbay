@@ -7,17 +7,15 @@ and out without ever stopping the process. The flags below just pre-load modules
 so a headless board can come up ready; nothing here can't also be done live.
 
     python run.py                 # start empty; add sources/sinks live from the UI
-    python run.py --source mock   # pre-load the synthetic source (no hardware)
-    python run.py --sink dryrun   # pre-load a logging-only mouse/keyboard sink
+    python run.py --catalog       # list the online catalog: modules and presets
+    python run.py --install controller --install hid   # download from the catalog first
+    python run.py --install controller-mouse           # a preset (brings the modules it needs)
     python run.py --sink hid      # pre-load the real mouse + keyboard sink
-    python run.py --preset mouse  # load a routing preset on start
-    python run.py --list-ports
+    python run.py --preset controller-mouse   # load a routing preset on start
     python run.py --selftest      # headless: tick a built-in test source -> sink for 2s, exit
-    python run.py --catalog       # list the online module catalog
-    python run.py --install mock --install dryrun   # download modules from the catalog first
 
-    python run.py --source bmi160:port=/dev/ttyUSB0    # pre-load a plugin source
-    python run.py --sink hid --source mock             # both, at once
+    python run.py --source controller:name=dualsense   # pre-load a source, with args
+    python run.py --sink hid --source controller       # both, at once
     python run.py --list-sources  # what's pluggable (the dropdown choices) + its args
     python run.py --list-sinks
 
@@ -53,7 +51,7 @@ if sys.version_info < (3, 11):
 from engine import catalog, library, modules, paths
 from engine.graph import Graph
 from engine.loop import EngineLoop
-from engine.registry import (SINKS, SOURCES, build, describe,
+from engine.registry import (SINKS, SOURCES, describe,
                              build_spec, discover)
 
 PRESETS = paths.PRESETS
@@ -82,7 +80,9 @@ def build_extra(registry: dict, specs: list, kind: str) -> dict:
     return out
 
 
-def load_graph(name: str) -> Graph:
+def load_graph(name: str | None) -> Graph:
+    if not name:
+        return Graph(name="untitled")
     path = PRESETS / f"{name}.json"
     if path.is_file():
         import json
@@ -92,16 +92,6 @@ def load_graph(name: str) -> Graph:
         return Graph.from_dict(d)
     print(f"[preset] '{name}' not found; starting empty")
     return Graph(name=name)
-
-
-def _need_standins() -> bool:
-    missing = [n for n, reg in (("mock", SOURCES), ("dryrun", SINKS)) if n not in reg]
-    if missing:
-        names = " ".join(f"--install {n}" for n in missing)
-        print(f"needs the {' and '.join(missing)} module(s), which aren't installed. "
-              f"Get them from the catalog: python run.py {names}  (or `install <name>` in "
-              "the --cli console, or Browse modules in the UI)")
-    return not missing
 
 
 def selftest():
@@ -158,32 +148,14 @@ def selftest():
           f"{len(snap['connections'])} connections)")
 
 
-def list_ports():
-    """Print the ports of the always-available stand-ins (mock source, dry-run
-    sink) so you can see the bus namespace presets are written against."""
-    if not _need_standins():
-        sys.exit(1)
-    _, src = build(SOURCES, "mock")
-    _, hid = build(SINKS, "dryrun")
-    for m in (src.module(), hid.module()):
-        print(f"\n{m.kind.upper()}  {m.id}  ({m.label}) [{m.status}]")
-        for p in m.ports:
-            pd = p if isinstance(p, dict) else p.to_dict()
-            print(f"  {pd['type']:7} {m.id}/{pd['id']:20} {pd.get('hint','')}")
-
-
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8420)
     ap.add_argument("--rate", type=float, default=120.0)
-    ap.add_argument("--preset", default="mouse")
-    ap.add_argument("--mock", action="store_true",
-                    help="pre-load the synthetic source (shorthand for --source mock)")
-    ap.add_argument("--dry-run", action="store_true",
-                    help="pre-load a logging-only sink (shorthand for --sink dryrun)")
-    ap.add_argument("--list-ports", action="store_true", help="print every source/sink port and exit")
+    ap.add_argument("--preset", default=None,
+                    help="load presets/NAME.json on start (default: start with an empty patch)")
     ap.add_argument("--source", action="append", default=[], metavar="TYPE[:k=v,...]",
                     help="pre-load a source from the plugin registry (repeatable); see --list-sources")
     ap.add_argument("--sink", action="append", default=[], metavar="TYPE[:k=v,...]",
@@ -229,14 +201,14 @@ def prepare(args) -> bool:
             ver = m["installed_version"] or m["version"] or ""
             if m["state"] == "update":
                 ver = f"{m['installed_version'] or '?'} → {m['version'] or '?'}"
-            print(f"  {m['state']:9} {m['kind']:6} {m['name']:10} {ver:16} {m['description']}")
+            print(f"  {m['state']:9} {m['kind']:6} {m['name']:26} {ver:16} {m['description']}")
         print(f"\n({listing['url']})")
         return True
     for name in args.install:
         try:
             for res in catalog.install(name, force=args.force):
                 print(f"[catalog] {'updated' if res['replaced'] else 'installed'} "
-                      f"{res['module_kind']} {res['name']}")
+                      f"{res.get('module_kind', 'preset')} {res['name']}")
         except catalog.Conflict as e:
             print(f"[catalog] {e} (add --force to go ahead)")
         except catalog.CatalogError as e:
@@ -254,8 +226,6 @@ def prepare(args) -> bool:
         print(describe(SINKS))
     elif args.selftest:
         selftest()
-    elif args.list_ports:
-        list_ports()
     else:
         return False
     return True
@@ -264,8 +234,8 @@ def prepare(args) -> bool:
 def start_engine(args) -> EngineLoop:
     # No default source or sink: the engine comes up empty and you patch in
     # hardware live. The flags below are pure pre-load shorthands.
-    source_specs = (["mock"] if args.mock else []) + list(args.source)
-    sink_specs = (["dryrun"] if args.dry_run else []) + list(args.sink)
+    source_specs = list(args.source)
+    sink_specs = list(args.sink)
     if not args.no_autostart:
         for spec in modules.load_config().get("autostart", []):
             type_name = spec.partition(":")[0].strip()

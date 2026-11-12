@@ -26,8 +26,8 @@ controller (`EngineLoop`); neither can perform an operation the other cannot (th
 ```
  sources                     routing core                         sinks
 ┌─────────────┐   {port:      ┌───────────────────────────┐   {port:   ┌──────────────┐
-│ joycon/mock │──► float} ───►│  bus  →  graph  →  nodes   │──► float}─►│ hid / dryrun │
-│ bmi160      │   per tick    │  (namespaced ports)        │   per sink │ gpio         │
+│ controller  │──► float} ───►│  bus  →  graph  →  nodes   │──► float}─►│ hid          │
+│ bend4, cv   │   per tick    │  (namespaced ports)        │   per sink │ sys          │
 │ <extension> │              └───────────┬───────────────┘            │ <extension>  │
 └─────────────┘                          │ fixed rate (default 120 Hz)└──────────────┘
         ▲                                 │
@@ -66,7 +66,7 @@ Type compatibility for a patch (`engine.signals.types_compatible`):
 
 ### 2.3 Port identifiers
 A port has a local id (e.g. `gyro.z`). On the bus it is **namespaced** by its
-owning instance id: `"<instance_id>/<port_id>"` (e.g. `joycon/gyro.z`,
+owning instance id: `"<instance_id>/<port_id>"` (e.g. `controller/gyro.z`,
 `hid/mouse.dx`). Namespacing is the single string join `f"{iid}/{pid}"`; the first
 `/` separates instance from port. Instance ids and port ids therefore **MUST NOT**
 contain `/`.
@@ -77,8 +77,8 @@ contain `/`.
 
 ### 2.5 `ModuleSpec`
 `engine.signals.ModuleSpec(id, label, kind, ports=[], status="ok")` where
-`kind ∈ {"source","sink"}`. `status` is free-form (`"ok"`, `"mock"`,
-`"dry-run"`, `"disconnected"`, `"error: …"`).
+`kind ∈ {"source","sink"}`. `status` is free-form (`"ok"`, `"searching"`,
+`"disconnected"`, `"error: …"`).
 
 ---
 
@@ -135,7 +135,7 @@ A preset file **is** a serialised graph:
 ```json
 { "name": "<preset>",
   "connections": [
-    { "id": "m_dx", "source": "joycon/gyro.x", "sink": "hid/mouse.dx",
+    { "id": "m_dx", "source": "controller/gyro.y", "sink": "hid/mouse.dx",
       "enabled": true,
       "chain": [ {"type": "scale", "params": {"factor": 0.006}}, … ] }
   ] }
@@ -167,10 +167,10 @@ Each plugin class declares two distinct names:
 - **`id`** — the *default instance id*, i.e. the bus namespace its ports appear
   under. Presets reference this; it **MUST** be stable across releases.
 
-They are separate so a *stand-in* can share another plugin's bus namespace: the
-mock source is `type="mock"`, `id="joycon"`; the dry-run sink is `type="dryrun"`,
-`id="hid"`. A preset built against `joycon`/`hid` therefore runs unchanged whether
-the real or the stand-in plugin is loaded.
+They are separate so a *stand-in* can share another plugin's bus namespace: a
+simulator with `type="controller_sim"`, `id="controller"` presents the same ports
+as the real `controller`, so a preset built against `controller` runs unchanged
+on either.
 
 When an instance is added, `EngineLoop` assigns it a **unique** instance id: the
 requested id if free, else the requested id suffixed `-2`, `-3`, … The engine sets
@@ -273,9 +273,10 @@ environment, and a sync makes the installed packages match them **exactly**.
 
 ### 5.7 Module catalog (`engine.catalog`)
 
-- No module ships with the engine. Modules are published by a **catalog**: a
-  static tree with `index.json` at its root and module folders at
-  `sources/<type>/…`, `sinks/<type>/…` (the `sensor-patchbay-modules` repo).
+- No module or preset ships with the engine. Both are published by a
+  **catalog**: a static tree with `index.json` at its root, module folders at
+  `sources/<type>/…`, `sinks/<type>/…`, and preset files at
+  `presets/<name>.json` (the `sensor-patchbay-modules` repo).
 - `index.json` is `{"format": 1, "modules": [Entry…]}`. An Entry has `name`,
   `kind`, `description`, `version`, `entry`, `depends`, `python`, `system`,
   `digest`, and `files`: `[{path, sha256, size}]`. Each `path` is relative to
@@ -283,6 +284,9 @@ environment, and a sync makes the installed packages match them **exactly**.
   them; anything else rejects the whole index. A client refuses a `format`
   newer than it knows. (`version` and `entry` were added without a format
   bump: an index without them reads as `""` and `__init__.py`.)
+- `index.json` may also hold `"presets": [{name, description, requires, path,
+  sha256, size}]`, with `path` exactly `presets/<name>.json` and `requires` as
+  in §8. An index without `presets` has none.
 - `digest` = sha256 over the sorted lines `relpath "\0" sha256 "\n"` of the
   module's files (relpath inside the module folder), excluding dotfiles,
   `__pycache__`, `*.pyc`, `*.part` and declared `assets`.
@@ -308,11 +312,27 @@ environment, and a sync makes the installed packages match them **exactly**.
   into the data folder, with the index URL as the record's `source`. Then
   sync. If `name` is installed and `modified` or `local`, refuse (a conflict)
   unless `force`.
-- **Remove** (`name`): delete the folder, but only if it is in the data folder
-  (not an extension dir). Report the installed modules that depend on it.
-  Then sync.
-- HTTP: `GET /api/catalog[?refresh=1]`, `POST /api/catalog/install {name, force?}`,
-  `POST /api/catalog/remove {name}`. Both POSTs answer like `POST /api/sync`,
+- **Install a preset** (`name`, `kind: "preset"`, or a name only presets have):
+  download it and check its sha256. For each `requires` entry that no
+  installed module type meets, install the first of its `types` the catalog
+  has (as a module install, above). Then write the preset through the same
+  path as an uploaded `.json`. Refuse a `modified` or `local` preset file
+  unless `force`.
+- **Preset records.** Every preset upload or install records
+  `{source, digest, catalog_sha256, installed}` under its name in
+  `presets/.install-records` (JSON). `digest` is the file as written, and
+  `catalog_sha256` the catalog's copy. Deleting a preset drops its record.
+  States are as for modules, with no record → `local`, `digest` ≠ the file →
+  `modified` (Save over it), `catalog_sha256` ≠ the index's → `update`
+  (`change` = `changed`; presets have no versions).
+- **Remove** (`name`): delete the module folder, but only if it is in the data
+  folder (not an extension dir), and report the installed modules that depend
+  on it. With `kind: "preset"` (or a name only a preset has), delete the preset
+  file and its record. Then sync.
+- HTTP: `GET /api/catalog[?refresh=1]` (rows for modules and presets; presets
+  have `kind: "preset"` and `requires`; every row has `in_catalog`),
+  `POST /api/catalog/install {name, kind?, force?}`, `POST /api/catalog/remove {name, kind?}`
+  (`kind` is `"module"` or `"preset"`). Both POSTs answer like `POST /api/sync`,
   plus `installed` / `removed`. A conflict is `409 {"error", "conflict": true}`.
   Same origin/host checks as every POST.
 
@@ -365,7 +385,7 @@ class Sink:
   release whatever it was holding.
 - `release_all` **MUST** leave hardware safe (keys/buttons up, PWM neutral, e-stop
   asserted). It is called on panic and on shutdown.
-- `PORTS` **MAY** be a dynamic `@property` (see `gpio`). Advertise a
+- `PORTS` **MAY** be a dynamic `@property` (e.g. one port per configured pin). Advertise a
   placeholder port whose id contains `<…>` (e.g. `key.<name>`) to
   signal "any id here is accepted"; set `accepts_any = True`.
 
@@ -479,15 +499,14 @@ is also running.
 Requires Python ≥ 3.11. Runs `engine.modules.ensure` (§5.6; `--no-sync` skips
 the environment step, `--upgrade` forces re-resolution, and `--sync` syncs,
 prints every enabled module's `system` notes and exits), then discovery, then
-either a one-shot mode (`--list-sources`, `--list-sinks`,
-`--list-ports`, `--selftest`) or the engine. Source/sink selection:
+either a one-shot mode (`--list-sources`, `--list-sinks`, `--catalog`,
+`--selftest`) or the engine. `--install NAME` (repeatable, with `--force`)
+installs modules or presets from the catalog (§5.7) before discovery.
+Source/sink selection:
 
 - no default source or sink: the engine comes up empty and you add modules live
-  from the UI or the `--cli` console. `--mock` pre-loads the synthetic source
-  (shorthand for `--source mock`) and `--source TYPE[:k=v]` (repeatable) pre-loads
-  registered source plugins.
-- `--dry-run` pre-loads the logging-only sink (shorthand for `--sink dryrun`) and
-  `--sink TYPE[:k=v]` (repeatable) pre-loads registered sink plugins (e.g.
+  from the UI or the `--cli` console. `--source TYPE[:k=v]` and
+  `--sink TYPE[:k=v]` (repeatable) pre-load registered plugins (e.g.
   `--sink hid` for the real mouse + keyboard).
 - `patchbay.toml`'s `autostart` specs are appended to the matching list, by
   looking up each spec's type among the registered sources and sinks. Unknown or
@@ -497,10 +516,13 @@ either a one-shot mode (`--list-sources`, `--list-sinks`,
 Front-end selection: web UI (default), `--cli` (web UI + console), `--no-ui`
 (no server; with `--cli`, console only; without, a headless appliance loop).
 `--ext DIR` (repeatable) adds extension directories of module folders. `--rate HZ` sets the tick
-rate; `--preset NAME` the startup preset; `--host`/`--port` the bind address.
+rate; `--preset NAME` the startup preset (default none: an empty graph);
+`--host`/`--port` the bind address.
 
-`--selftest` is the CI check: mock source → dry-run sink for 2 s, asserting the
-snapshot has `joycon/gyro.z` and `rate == 120`.
+`--selftest` is the CI check and needs no modules: a built-in oscillator source
+→ a recording sink, through a `scale` → `clamp` chain, for 2 s. It asserts the
+snapshot has `osc/sine`, `rate == 120`, more than 100 ticks reached the sink,
+and every value stayed clamped.
 
 ---
 
@@ -513,7 +535,7 @@ The project is layered so the routing core can run on a constrained target
   `engine/nodes.py`, `engine/graph.py`, `engine/registry.py`, the `Source`/`Sink`
   contracts, and `EngineLoop.step`. No `numpy`, no third-party imports.
 - **Host-only (PC / full CPython):** `server.py`, `ui/`, the `pynput` HID sink,
-  the `pyjoycon` source, and `engine/modules.py` (package management: `tomllib`,
+  the SDL `controller` source, and `engine/modules.py` (package management: `tomllib`,
   `subprocess`, uv). These are optional front-ends and I/O adapters, not part of
   the routing core.
 - **Threads are optional.** A target without usable threads omits
@@ -524,7 +546,7 @@ The project is layered so the routing core can run on a constrained target
 - **Config portability.** Presets are plain JSON and portable verbatim. A target
   without a filesystem embeds them as a string/bytes literal. Because presets
   reference the stable bus **id** (§5.1), a preset authored in the PC GUI against
-  `joycon`/`hid` runs on-device provided the target registers instances under the
+  `controller`/`hid` runs on-device provided the target registers instances under the
   same ids.
 - **Reconfiguration on-device** uses the CLI console (§10) or a subset of the REST
   API (§9), whichever the target can host.

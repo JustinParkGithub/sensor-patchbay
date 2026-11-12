@@ -2,21 +2,22 @@
 
 A **sensor → routing → command** pipeline: named signals from any sensor go on a
 typed bus, run through a hot-editable **routing graph** (scale, curve, deadzone,
-smoothing, thresholds, gesture gates…), and drive any output. The shipping input
-is a Nintendo Switch **Joy-Con (R)** and an **Arduino Nano + BMI160**; the
-shipping output is a **virtual mouse & keyboard** — but sources and sinks are
-plugins you pick from a menu, add live, and extend with one file.
+smoothing, thresholds, gesture gates…), and drive any output. The catalog's
+inputs are **any game controller** (Xbox, PlayStation, Switch, 8BitDo, …, with
+motion and touchpad where the pad has them), **flex sensors** and **webcam hand
+tracking**. Its output is a **virtual mouse & keyboard**. Sources and sinks are
+plugins you install from a catalog, add live, and extend with one folder.
 
 You wire it together in a browser-based **patch panel**, or, on a headless board,
 from an on-device **CLI console** — two front-ends over one engine. It runs
 offline (once its modules are installed) and saves presets as plain JSON.
 
 ```
-Joy-Con (R)  ──BT───►  sources/joycon/    ─┐
-Nano + BMI160 ──USB──► sources/bmi160/    ┤                                 ┌─► sinks/hid/ ──────► OS
-your sensor  ──────►   sources/<yours>/   ├─► engine (bus + graph + nodes) ─┤
-                                          ┘        ▲          ▲             └─► sinks/gpio/, … ──► GPIO / …
-                                             fixed 120 Hz  presets/*.json
+any controller ─USB/BT─► sources/controller/ ─┐
+flex sensors ──USB─────► sources/bend4/      ┤                                 ┌─► sinks/hid/ ──► OS
+your sensor  ──────────► sources/<yours>/    ├─► engine (bus + graph + nodes) ─┤
+                                             ┘        ▲          ▲             └─► sinks/<yours>/ ─► …
+                                                fixed 120 Hz  presets/*.json
                                                    │
                              ui/ (patch panel)  +  control.py (CLI console)  — same engine, two editors
 ```
@@ -67,9 +68,9 @@ Launch it, and the patch panel opens in its own window with an icon in the tray
 menu brings it back, opens it in a browser, toggles PANIC, opens the data folder,
 and quits. Starting it again while it's running just opens the running one.
 
-The app **ships with no modules and no presets**, not even `mock`. Install modules
-from **Browse…** in the patch panel (see [Module catalog](#module-catalog)), and
-upload `presets/*.json` with **Upload…** (or drop them on the window). Everything you add lives in a per-user
+The app **ships with no modules and no presets**. Install both from **Browse…**
+in the patch panel (see [Module catalog](#module-catalog)). Your own preset
+files can be added with **Upload…**, or by dropping them on the window. Everything you add lives in a per-user
 data folder, so updating the app keeps it:
 
 | | data folder |
@@ -112,12 +113,10 @@ cd sensor-patchbay
 python3.12 -m venv .venv && .venv/bin/pip install uv   # any Python 3.11+, plus uv
 source .venv/bin/activate
 
-python run.py                                     # installs every module's packages on first run,
-                                                  # then starts empty; add modules live from the UI
-#   open http://127.0.0.1:8420
-
-python run.py --mock --dry-run                    # no hardware, no real input events — just explore
-python run.py --sink hid --mock --preset mouse    # real mouse/keyboard, synthetic source, air-mouse
+python run.py                                     # starts empty: open http://127.0.0.1:8420, then
+                                                  # Browse… to install modules and presets
+python run.py --install controller-mouse-keyboard # a preset, plus the modules it needs (controller, hid)
+python run.py --sink hid --source controller --preset controller-mouse-keyboard
 python app.py                                     # the desktop app's window + tray, from source
                                                   #   (pip install -r packaging/requirements.txt)
 ```
@@ -133,12 +132,9 @@ modules so a rig comes up ready; anything they do can also be done live in the U
 
 | flag | effect |
 |---|---|
-| `--mock` | pre-load the synthetic source (oscillators shaped like real Joy-Con ports) — same as `--source mock` |
-| `--dry-run` | pre-load a logging-only sink instead of the real mouse/keyboard — same as `--sink dryrun` |
-| `--preset NAME` | load `presets/NAME.json` at startup (default `mouse`) |
+| `--preset NAME` | load `presets/NAME.json` at startup (default: none, an empty patch) |
 | `--rate HZ` | engine tick rate (default 120; also settable live in the UI/console) |
-| `--list-ports` | print every source/sink port and exit |
-| `--source TYPE[:k=v,...]` | pre-load a registered source plugin (repeatable) — e.g. `--source bmi160:port=/dev/ttyUSB0` |
+| `--source TYPE[:k=v,...]` | pre-load a registered source plugin (repeatable) — e.g. `--source controller:name=dualsense` |
 | `--sink TYPE[:k=v,...]` | pre-load a registered sink plugin (repeatable) — e.g. `--sink hid` for the real mouse + keyboard |
 | `--list-sources` / `--list-sinks` | list what's registered and its constructor args, then exit |
 | `--cli` | also start the interactive control console (reconfigure live) |
@@ -148,7 +144,9 @@ modules so a rig comes up ready; anything they do can also be done live in the U
 | `--upgrade` | re-resolve every module's packages to the newest versions, then sync |
 | `--no-sync` | don't check or change installed packages this run |
 | `--no-autostart` | ignore `patchbay.toml`'s `autostart` list this run |
-| `--selftest` | headless: run mock → dry-run for 2 s, assert, exit |
+| `--catalog` | list the catalog (modules and presets) with what's installed, then exit |
+| `--install NAME` | install a module or preset from the catalog before starting (repeatable); `--force` overwrites a modified or hand-placed copy |
+| `--selftest` | headless: tick a built-in test source → sink for 2 s, assert, exit (needs no modules) |
 | `--host` / `--port` | bind address for the UI (default `127.0.0.1:8420`) |
 
 You never *need* `--source`/`--sink`: it's usually easier to add modules live from
@@ -167,15 +165,15 @@ installed up front, so any source or sink can be added live from the UI at any
 time without a reinstall or restart. You opt modules *out* with `disable`.
 
 ```
-sources/bmi160/
+sources/bend4/
   __init__.py      # the plugin
   module.toml      # what it needs
   firmware/        # anything else that belongs to it
 ```
 
 ```toml
-# sources/bmi160/module.toml
-description = "Arduino Nano + BMI160 IMU over USB serial"   # one line, for the catalog
+# sources/bend4/module.toml
+description = "Arduino Nano + four flex sensors over USB serial"   # one line, for the catalog
 version = "1.0.0"                                  # dotted numbers; bump on every change
 entry   = "__init__.py"                            # optional: the file that runs (this is the default)
 python  = ["pyserial>=3.5"]                        # pip requirement strings (markers ok)
@@ -193,20 +191,21 @@ they changed, it re-resolves them into **`patchbay.lock`** (with `uv pip compile
 --universal`, so one committed lock works on macOS, Linux and a Pi). It then runs
 `uv pip sync`, which installs what's missing and **uninstalls anything no enabled
 module needs**. When nothing changed this takes well under a second and needs no
-network. Shared packages are counted once: `pyserial` stays installed while
-either `bmi160` or `bend4` is enabled.
+network. Shared packages are counted once: a package two modules need stays
+installed while either of them is enabled.
 
 **`patchbay.toml`** is the rig-wide config, and everything in it is optional:
 
 ```toml
 python    = ["uv"]          # core packages (uv itself, so the sync keeps it)
 disable   = []              # opt-out, e.g. ["cv"]: never imported, packages removed
-autostart = []              # added on start, e.g. ["bmi160:port=/dev/ttyACM0", "hid"]
+autostart = []              # added on start, e.g. ["controller", "hid"]
+catalog   = ""              # where to install from (default: the modules repo on GitHub)
 ```
 
 Being installed isn't the same as being added. Nothing autostarts by default.
 Installed modules wait in the *add source / add sink* dropdowns. A module whose `depends` is disabled is disabled
-too (`mock` needs `joycon`, `dryrun` needs `hid`). What pip can't do — pairing,
+too. What pip can't do — pairing,
 udev rules, serial groups, macOS Accessibility and camera permissions — is listed
 in each module's `system` notes. `python run.py --sync` prints them.
 
@@ -219,23 +218,26 @@ resolver names both modules' files when that happens.
 
 ## Sources & sinks
 
-Sources and sinks live in their own repo, [sensor-patchbay-modules](https://github.com/JustinParkGithub/sensor-patchbay-modules),
+Sources, sinks **and presets** live in their own repo,
+[sensor-patchbay-modules](https://github.com/JustinParkGithub/sensor-patchbay-modules),
 not here. Each module's setup (pairing, wiring, firmware, permissions) and its
 ports are documented in its folder there. Packages are installed automatically;
 the module README covers what pip can't do.
 
 | type | kind | what |
 |---|---|---|
-| `joycon` | source | Nintendo Switch Joy-Con (R) over Bluetooth |
-| `mock` | source | synthetic Joy-Con stand-in, no hardware |
-| `ds4` | source | Sony DualShock 4 over USB or Bluetooth |
-| `bmi160` | source | Arduino Nano + BMI160 IMU over USB serial |
+| `controller` | source | any game controller via SDL2: Xbox, PlayStation, Switch Pro / Joy-Con, 8BitDo, generic. Motion and touchpad where the pad has them |
 | `bend4` | source | Arduino Nano + four flex sensors over USB serial |
 | `cv` | source | webcam hand tracking (OpenCV + MediaPipe) |
-| `gamepad` | source | any XInput / DInput / Switch-style controller (SDL2); also registers `zero2` (8BitDo Zero 2) |
 | `hid` | sink | virtual mouse + keyboard (pynput) |
-| `dryrun` | sink | logging-only stand-in for `hid` |
-| `gpio` | sink | Raspberry Pi PWM + digital out |
+
+| preset | what | uses |
+|---|---|---|
+| `controller-mouse-keyboard` | any controller as keyboard + mouse: d-pad/left stick are arrows, right stick the mouse | `controller`, `hid` |
+| `controller-mouse` | right stick (and a PlayStation touchpad) as the mouse, triggers click | `controller`, `hid` |
+| `controller-air-mouse` | point a motion controller to move the cursor | `controller`, `hid` |
+| `controller-tilt-keys` | tilt a motion controller for WASD, shake for Esc | `controller`, `hid` |
+| `bend4-mouse-keyboard` | bend fingers to look, walk and jump | `bend4`, `hid` |
 
 `python run.py --sync` prints every enabled module's system-setup notes.
 
@@ -245,27 +247,29 @@ The engine reads the modules repo's `index.json` and installs from it:
 
 | where | how |
 |---|---|
-| patch panel | **Browse…** in the top bar: search, filter sources/sinks, **Install** / **Update** / **Remove** |
+| patch panel | **Browse…** in the top bar: search, filter sources / sinks / presets, **Install** / **Update** / **Remove** |
 | console (`--cli`) | `catalog [query]`, `install <name> [--force]`, `uninstall <name>` |
-| command line | `python run.py --catalog`, `python run.py --install mock --install dryrun` |
+| command line | `python run.py --catalog`, `python run.py --install controller-mouse-keyboard` |
 
-Installing downloads every file of the module, checks it against the sha256 in
-the index, writes it to the data folder (`sources/<type>/` in a checkout, which
-git ignores), and syncs. Whatever the module `depends` on comes with it
-(`mock` → `joycon`, `dryrun` → `hid`). The last index fetched is cached, so the
-panel still lists modules offline.
+Installing a module downloads every file of it, checks each against the sha256
+in the index, writes it to the data folder (`sources/<type>/` in a checkout,
+which git ignores), and syncs. Whatever the module `depends` on comes with it.
+Installing a **preset** writes it to `presets/` and also installs any module it
+uses that isn't installed yet. The last index fetched is cached, so the panel
+still lists the catalog offline.
 
-**Any module folder on disk counts as installed**, however it got there: from
-the catalog, uploaded, copied in by hand, or loaded with `--ext`. Installs and
-uploads also leave a `.install.json` in the folder recording where it came
-from, its version, and a digest of its files. That record is how the panel
-tells these apart:
+**Any module folder or preset file on disk counts as installed**, however it got
+there: from the catalog, uploaded, copied in by hand, or loaded with `--ext`.
+Installs and uploads also leave a record of where it came from, its version, and
+a digest of its files: `.install.json` in a module's folder, and one shared
+`presets/.install-records` for presets. That record is how the panel tells
+these apart:
 
 | state | meaning | button |
 |---|---|---|
 | **installed** | unchanged since it was installed (or no record, but identical to the catalog's) | — |
 | **update available** | unchanged locally; the catalog's files differ. Shown as *1.0.0 → 1.1.0*, or as *catalog has an older version* | **Update** / **Downgrade** |
-| **modified locally** | its files changed after it was installed | **Reinstall** (asks first) |
+| **modified locally** | its files changed after it was installed (for a preset: saved over) | **Reinstall** (asks first) |
 | **local only** | no install record: copied in by hand or from `--ext` | **Replace** (asks first), if the catalog has it |
 
 Installing over a modified or local copy would lose files nobody installed, so
@@ -278,7 +282,7 @@ that repo's layout (a fork, GitHub Pages, a LAN server) or a local path, which
 is the easy way to develop modules:
 
 ```bash
-PATCHBAY_CATALOG=~/Dev/sensor-patchbay-modules python run.py
+PATCHBAY_CATALOG=path/to/sensor-patchbay-modules python run.py
 ```
 
 ---
@@ -296,8 +300,8 @@ middle. Nothing loads from the internet.
 - **Meters** — every jack shows its current value and an auto-gained bar, so you
   can see exactly what a sensor axis is doing before you wire it anywhere.
 - **Add a source / sink** — at the bottom of each column is a dropdown of every
-  installed plugin, plus its options. Pick one (e.g. `BMI160`, `Raspberry Pi
-  GPIO`), fill in its args, hit **add**, and its jacks appear ready to patch — no
+  installed plugin, plus its options. Pick one (e.g. `Game controller`), fill in
+  its args, hit **add**, and its jacks appear ready to patch — no
   restart. Plugins that need a missing library are listed greyed-out with the
   reason. Each module header has an **✕** to remove it (its cables go with it).
 - **Presets** — the dropdown + Load / Save / Save as / New / Delete. A preset is
@@ -305,15 +309,15 @@ middle. Nothing loads from the internet.
   them. A preset that needs a source or sink you don't have is marked **⚠** in
   the dropdown. The badge beside it says which (hover it for why), and loading
   it warns too. See [Preset dependencies](#preset-dependencies).
-- **Browse…** — search the module catalog and install, update or remove sources
-  and sinks. See [Module catalog](#module-catalog).
+- **Browse…** — search the catalog and install, update or remove sources, sinks
+  and presets. See [Module catalog](#module-catalog).
 - **Upload… / ⟳ Sync** — add modules and presets from files, and re-read what's
   on disk. See [Adding modules & presets](#adding-modules--presets).
 - **Rate** — the `Hz` box in the top bar sets the engine tick rate live.
 - **PANIC** — disables every output instantly and releases held keys/buttons.
   Patch any button to `sys/panic.toggle` to get the same switch on hardware.
-- Mapping `joycon/btn.home → sys/preset.cycle` (both shipped presets do this) makes
-  the Home button walk through your preset files.
+- Mapping `controller/btn.guide → sys/preset.cycle` (the controller presets do
+  this) makes the Xbox / PS / Home button walk through your preset files.
 
 ### Adding modules & presets
 
@@ -323,7 +327,7 @@ on the window. After uploading, the panel syncs on its own. New sources and sink
 then show up in the *add* dropdowns, and new presets in the preset list.
 Uploading a module or preset that already exists replaces it.
 
-- A module zip holds one module folder (`mock/__init__.py`, `mock/module.toml`,
+- A module zip holds one module folder (`hid/__init__.py`, `hid/module.toml`,
   ...). The files can also sit at the top of the zip, which then names the
   module, or under `sources/` / `sinks/`. Outside those, `module.toml` must say
   `kind = "source"` or `"sink"`; every module in the catalog does.
@@ -367,12 +371,15 @@ python run.py --cli                    # web UI and console side by side
 ```
 
 ```
+patchbay> catalog controller            # search the catalog
+patchbay> install controller-mouse      # a preset, plus the modules it uses
 patchbay> plugins                       # what can I add?  (the dropdown, as text)
-patchbay> add sink gpio pwm_pins=18,13  # add a module live
+patchbay> add source controller name=dualsense   # add a module live
+patchbay> add sink hid
 patchbay> ports                         # list every jack on the bus
-patchbay> connect bmi160/tilt.roll gpio/pwm.0
+patchbay> connect controller/tilt.roll hid/key.d
 patchbay> save my-rig                   # write presets/my-rig.json
-patchbay> install ~/hid.zip             # add a module (or a preset .json), then sync
+patchbay> install ~/my-module.zip       # add a module (or a preset .json) from a file, then sync
 patchbay> sync                          # re-read modules + presets from disk
 patchbay> panic on                      # cut all outputs
 patchbay> help
@@ -384,81 +391,32 @@ runs a preset as a fixed appliance.
 
 ---
 
-## Shipped presets
+## Presets
 
-**`mouse.json`** — air-mouse
+None ship with the engine. Install them from **Browse…** (the *presets* filter),
+`install <name>` in the console, or `--install <name>`. The catalog's presets
+and what each cable does are listed in the
+[modules repo](https://github.com/JustinParkGithub/sensor-patchbay-modules#presets).
+Installing a preset also installs the modules it uses.
 
-| source | chain | sink |
-|---|---|---|
-| `gyro.y` (yaw rate) | scale · deadzone · expo · scale · clamp | `mouse.dx` |
-| `gyro.x` (pitch rate) | scale · deadzone · expo · scale · invert · clamp | `mouse.dy` |
-| `btn.zr` | — | `mouse.left` |
-| `btn.r` | — | `mouse.right` |
-| `stick.y` | deadzone · scale · rate-limit | `mouse.wheel` |
-| `accel.mag` | threshold 2.2 g · debounce 500 ms · hold | `mouse.btn_forward` (wrist flick) |
-| `btn.home` | — | `sys/preset.cycle` |
+Your own presets are files in `presets/`: **Save** / **Save as** write them, and
+they're plain JSON to diff, copy and hand-edit. Saving over a preset installed
+from the catalog marks it *modified locally*, so an update never overwrites
+your changes without asking.
 
-**`keyboard.json`** — tilt to WASD
-
-| source | chain | sink |
-|---|---|---|
-| `tilt.roll` | schmitt +20°/+12° | `key.d` |
-| `tilt.roll` | schmitt −20°/−12° | `key.a` |
-| `tilt.pitch` | schmitt −20°/−12° | `key.w` |
-| `tilt.pitch` | schmitt +20°/+12° | `key.s` |
-| `btn.a` | — | `key.space` |
-| `accel.mag` | threshold 2.5 g · debounce 400 ms · hold | `key.esc` (shake) |
-| `btn.home` | — | `sys/preset.cycle` |
-
-**`bmi160-mouse.json`** — air-mouse, BMI160
-
-| source | chain | sink |
-|---|---|---|
-| `gyro.y` | scale · deadzone · expo · scale · clamp | `mouse.dx` |
-| `gyro.x` | scale · deadzone · expo · scale · invert · clamp | `mouse.dy` |
-| `accel.mag` | threshold 2.2 g · debounce 500 ms · hold | `mouse.left` (shake to click) |
-
-**`gamepad-mouse-keyboard.json`** — 8BitDo Zero 2 (`zero2`) or any controller (`gamepad`) as keyboard + mouse
-
-| source | chain | sink |
-|---|---|---|
-| `dpad.*` | — | `key.up/down/left/right` |
-| `btn.a` / `btn.b` / `btn.x` / `btn.y` / `btn.start` | — | `key.space` / `key.esc` / `key.e` / `key.tab` / `key.enter` |
-| `btn.lb` / `btn.rb` (L / R) | — | `mouse.left` / `mouse.right` |
-| `btn.back` (Select) | — | `sys/preset.cycle` |
-| *full-size pads only:* | | |
-| `stick.lx` / `stick.ly` | schmitt ±0.5/±0.35 | `key.left/right` / `key.down/up` |
-| `stick.rx` / `stick.ry` | deadzone 0.12 · expo · scale 1400 (· invert for y) | `mouse.dx` / `mouse.dy` |
-| `btn.rt` / `btn.lt` / `btn.rs` | — | `mouse.left` / `mouse.right` / `mouse.middle` |
-
-**`ds4-mouse.json`** — DualShock 4 as a mouse
-
-| source | chain | sink |
-|---|---|---|
-| `rstick.x` / `rstick.y` | deadzone · expo · scale | `mouse.dx` / `mouse.dy` |
-| `touch.dx` / `touch.dy` | scale · clamp | `mouse.dx` / `mouse.dy` (trackpad) |
-| `r2` | schmitt 0.5/0.35 | `mouse.left` |
-| `btn.touchpad` | — | `mouse.left` |
-| `l2` | schmitt 0.5/0.35 | `mouse.right` |
-| `btn.r3` | — | `mouse.middle` |
-| `btn.l1` / `btn.r1` | — | `mouse.btn_back` / `mouse.btn_forward` |
-| `lstick.y` | deadzone · invert · scale · rate_limit | `mouse.wheel` |
-| `btn.ps` | — | `sys/preset.cycle` |
-
-Raw Joy-Con sensor units are arbitrary but stable — tune magnitudes with a
-`scale` node in the preset, never in the plugin, so a preset built against the
-mock source works unchanged on real hardware.
+Tune magnitudes with a `scale` node in the preset, never in the plugin, so one
+preset works across devices that report in different units.
 
 ### Preset dependencies
 
-A preset patches into bus namespaces (`joycon/…`, `hid/…`). A namespace is an
+A preset patches into bus namespaces (`controller/…`, `hid/…`). A namespace is an
 instance id, not a plugin type, so each preset lists which types can fill each
 namespace it uses:
 
 ```json
 "requires": [
-  {"id": "joycon", "kind": "source", "types": ["joycon", "mock"]},
-  {"id": "hid",    "kind": "sink",   "types": ["dryrun", "hid"]}
+  {"id": "controller", "kind": "source", "types": ["controller"]},
+  {"id": "hid",        "kind": "sink",   "types": ["hid"]}
 ]
 ```
 
@@ -493,9 +451,8 @@ checked against the namespaces its connections use.
 
 ## Ports
 
-`python run.py --list-ports` for the live list.
-
-Source ports are listed in each source's README (see **Sources & sinks**).
+`ports` in the console lists every live jack. Source ports are listed in each
+source's README (see **Sources & sinks**).
 
 **Sink `hid`** — `mouse.dx`, `mouse.dy` (pixels/second), `mouse.wheel`
 (clicks/second), `mouse.{left,right,middle,btn_back,btn_forward}`, and
@@ -526,9 +483,9 @@ the console's `add` command, `--list-sources`/`--list-sinks`, and the
 
 A plugin declares two names: **`type`** — the registry key you pick from the menu —
 and **`id`** — the bus namespace its ports live under (`type/port` on the wire).
-They're separate on purpose: a *stand-in* like the mock Joy-Con is a different
-`type` (`mock`) but borrows the real device's `id` (`joycon`), so a preset built
-against one runs unchanged on the other.
+They're separate on purpose: a *stand-in* (a simulator, or a second driver for
+the same device) can have its own `type` but borrow the real module's `id`, so a
+preset built against one runs unchanged on the other.
 
 ### A new output — subclass `sinks.base.Sink`
 
@@ -567,17 +524,15 @@ against (its `type` picks the input widget). Import your third-party dependency
 so a machine where the library didn't install (wrong platform, `--no-sync`) still
 lists it politely instead of failing to load.
 
-There's a complete, working example already in the tree:
-[`sinks/gpio/`](https://github.com/JustinParkGithub/sensor-patchbay-modules/tree/main/sinks/gpio) drives
-Raspberry Pi GPIO — PWM channels for servos / drone ESCs, digital pins for relays —
-and falls back to logging when there's no Pi, so you can build the patch on a
-laptop. Copy it.
+For a complete, working sink to copy, see
+[`sinks/hid/`](https://github.com/JustinParkGithub/sensor-patchbay-modules/tree/main/sinks/hid) in the modules repo (virtual mouse + keyboard).
 
 ### A new input — subclass `sources.base.Source`
 
 Return `{port_id: float}` from `read()` each tick; flatten vectors to `accel.x`
 etc. Keep `read()` non-blocking (do I/O on your own thread, like
-`sources/joycon/` or `sources/bmi160/`). Decorate with
+[`sources/controller/`](https://github.com/JustinParkGithub/sensor-patchbay-modules/tree/main/sources/controller) or
+[`sources/bend4/`](https://github.com/JustinParkGithub/sensor-patchbay-modules/tree/main/sources/bend4)). Decorate with
 `@register_source`, give it a `type`/`id`/`ARGS`, and it's selectable the same way
 (`--source yourtype[:k=v,...]`, the dropdown, or `add source`).
 
@@ -590,8 +545,7 @@ A sink can speak whatever protocol you like. For hardware that lives on another
 machine or behind a slow/blocking transport, keep the real-time loop isolated by
 having the sink hand each tick's `{port: value}` to a queue or socket and doing
 the actual I/O off the engine thread — the same pattern the source plugins use
-for reads. `sinks/gpio/` (below) is a complete working sink
-to copy.
+for reads.
 
 ---
 
@@ -607,7 +561,7 @@ sinks/      base.py  (+ installed sink folders, git-ignored)
 patchbay.toml                                              # rig config: disable / autostart / core packages / catalog
 patchbay.lock                                              # generated per machine (git-ignored): exact packages for installed modules
 ui/         src/ (plain TS)    dist/ (committed build)    # patch panel — see ui/README.md
-presets/    mouse.json  keyboard.json  bmi160-mouse.json  bend4-mouse-keyboard.json  gamepad-mouse-keyboard.json  ds4-mouse.json
+presets/    (installed and saved presets, git-ignored)       # presets come from the catalog
 docs/       OVERVIEW.md  SPECIFICATION.md                  # informal + formal docs
 control.py  interactive CLI console (--cli)                # reconfigure a headless engine
 server.py   http.server + Server-Sent Events + REST       # stdlib only
@@ -620,21 +574,20 @@ packaging/  sensor-patchbay.spec  requirements.txt         # PyInstaller build o
 
 - The **routing core** (`engine/`, the plugin/sink contracts, `EngineLoop.step`)
   is pure standard library — no numpy, no third-party imports — so it ports to a
-  microcontroller. `server.py`, `ui/`, the `pynput` sink and the `pyjoycon` source
-  are PC-only front-ends and I/O adapters bolted on top; on a small board you keep
+  microcontroller. `server.py`, `ui/` and modules like the `pynput` sink and the
+  SDL `controller` source are PC-only front-ends and I/O adapters bolted on top; on a small board you keep
   the core, call `engine.step(dt)` from your own loop, and reconfigure over the
   CLI. See [`docs/SPECIFICATION.md`](docs/SPECIFICATION.md) §12.
 - The engine runs at 120 Hz by default; plenty for motion input, comfortable for
   Python without numpy.
-- `--selftest` is the CI check (mock source → dry-run sink, asserts the snapshot).
+- `--selftest` is the CI check: a built-in oscillator source → recording sink, so it
+  needs no modules installed.
 - Tested here: engine math, the REST API (including the new `/api/plugins` and the
   runtime `/api/source|sink` add/remove endpoints), the SSE stream and its
   `mod_rev` live-refresh signal, presets and panic via `--selftest` and a scripted
   API pass; the plugin registry (`discover`, availability probing,
   `--list-sources`/`--list-sinks`, type-based instantiation) and the CLI console
-  via scripted passes. `sources/bmi160/`'s parser/calibration/tilt math
-  is unit-tested against synthetic serial frames — it has not been run against a
-  real Nano+BMI160 here; check `--list-ports` picks up `bmi160` and the meters move
-  once you have the hardware. The browser UI's JavaScript is syntax- and
-  logic-checked but was not rendered in a real browser here — give it a visual
-  once-over on first run.
+  via scripted passes. The browser UI, including the catalog panel, has been
+  driven in headless Chromium. The `controller` source has been tested against
+  SDL's virtual gamepad, not yet with physical controllers; motion and
+  touchpad axis signs especially want a check on real hardware.

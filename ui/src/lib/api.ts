@@ -56,6 +56,9 @@ export interface ConnectionPatch {
 }
 
 /** What every call that ends in a sync answers with. */
+/** What a catalog install / remove acts on (a source or sink is a "module"). */
+export type CatalogKind = 'module' | 'preset'
+
 export interface SyncedResponse {
   ok: boolean
   report: SyncReport
@@ -120,14 +123,18 @@ export const api = {
    * Download a module (and its depends) from the catalog, then sync. Without
    * `force`, the engine refuses (409) to overwrite a modified or hand-placed copy.
    */
-  catalogInstall: (name: string, force = false) =>
-    request<SyncedResponse & { installed: UploadResult[] }>('POST', '/api/catalog/install', { name, force }),
-  /** Delete an installed module from the data folder, then sync. */
-  catalogRemove: (name: string) =>
-    request<SyncedResponse & { removed: { name: string; kind: ModuleKind; needed_by: string[] } }>(
+  catalogInstall: (name: string, kind: CatalogKind, force = false) =>
+    request<SyncedResponse & { installed: UploadResult[] }>('POST', '/api/catalog/install', {
+      name,
+      kind,
+      force,
+    }),
+  /** Delete an installed module from the data folder (or a preset file), then sync. */
+  catalogRemove: (name: string, kind: CatalogKind) =>
+    request<SyncedResponse & { removed: { name: string; kind: ModuleKind | 'preset'; needed_by: string[] } }>(
       'POST',
       '/api/catalog/remove',
-      { name },
+      { name, kind },
     ),
 
   /** A module `.zip` or a preset `.json`, sent as the raw body. */

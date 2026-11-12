@@ -128,11 +128,13 @@ export interface SyncReport {
 /** Where a catalog module stands on this machine (see `engine/catalog.py`). */
 export type CatalogState = 'available' | 'installed' | 'update' | 'modified' | 'local'
 
-/** One entry of `GET /api/catalog`. */
+/** One entry of `GET /api/catalog`: a module, or (kind `preset`) a preset. */
 export interface CatalogModule {
   name: string
-  kind: ModuleKind
+  kind: ModuleKind | 'preset'
   description: string
+  /** Presets only: the modules it patches into (any one of `types` will do). */
+  requires?: PresetRequirement[]
   depends: string[]
   python: string[]
   system: string[]
@@ -140,6 +142,8 @@ export interface CatalogModule {
   version: string | null
   /** What runs: a `.py` file, or a native program (see `runnable`). */
   entry: string
+  /** The catalog has it (so it can be installed, updated or replaced from there). */
+  in_catalog: boolean
   /** False when this engine can't run the entry (a native plugin). */
   runnable: boolean
   state: CatalogState
