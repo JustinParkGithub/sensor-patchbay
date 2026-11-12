@@ -509,6 +509,12 @@ Source ports are listed in each source's README (see **Sources & sinks**).
 
 ## Extending it
 
+> **The full requirements for a source or sink** (manifest keys, ports, what
+> `read()`, `apply()`, `release_all()` and `available()` must do, and the
+> pull-request checklist) are in the
+> [modules repo's README](https://github.com/JustinParkGithub/sensor-patchbay-modules#writing-a-source-or-sink).
+> Publish a module by opening a pull request there.
+
 Adding a source or sink is **one new folder**, with no edits to `run.py`, the
 engine, or the UI. Create `sinks/<type>/` (or `sources/<type>/`) containing an
 `__init__.py` and a `module.toml`. The folder name must match the class's `type`.
