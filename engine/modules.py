@@ -17,6 +17,7 @@ code (``__init__.py``) and a ``module.toml`` manifest::
 
     # module.toml
     kind    = "source"                  # optional in-repo (the parent folder decides)
+    description = "Arduino Nano + BMI160 IMU over USB serial"   # shown in the catalog
     python  = ["pyserial>=3.5"]         # pip requirement strings (PEP 508 markers ok)
     depends = []                        # other modules whose *code* this one imports
     system  = ["Linux: user in 'dialout'"]   # things pip can't manage; printed on sync
@@ -78,7 +79,7 @@ KINDS = paths.KINDS
 MIN_PYTHON = "3.11"          # tomllib; the lock is resolved for this and newer
 
 _DIGEST_PREFIX = "# patchbay-inputs: "
-_MANIFEST_KEYS = {"kind", "python", "depends", "system", "assets"}
+_MANIFEST_KEYS = {"kind", "description", "python", "depends", "system", "assets"}
 
 
 @dataclass

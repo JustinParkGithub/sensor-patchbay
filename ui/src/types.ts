@@ -125,6 +125,33 @@ export interface SyncReport {
   sinks: number
 }
 
+/** Where a catalog module stands on this machine (see `engine/catalog.py`). */
+export type CatalogState = 'available' | 'installed' | 'update' | 'local'
+
+/** One entry of `GET /api/catalog`. */
+export interface CatalogModule {
+  name: string
+  kind: ModuleKind
+  description: string
+  depends: string[]
+  python: string[]
+  system: string[]
+  state: CatalogState
+  /** Whether the engine may delete it (it lives in the data folder). */
+  removable: boolean
+  /** Bytes to download; 0 for `local` modules. */
+  size: number
+}
+
+/** `GET /api/catalog` — the online module index, marked with what's installed. */
+export interface CatalogListing {
+  url: string
+  /** True when the index couldn't be fetched and this is the last copy seen. */
+  cached: boolean
+  error: string | null
+  modules: CatalogModule[]
+}
+
 /** `POST /api/upload` — one file written into the data folder. */
 export type UploadResult =
   | { ok: true; kind: 'preset'; name: string; replaced: boolean; missing: MissingRequirement[] }

@@ -226,7 +226,8 @@ environment, and a sync makes the installed packages match them **exactly**.
 
   | key | type | meaning |
   |---|---|---|
-  | `kind` | `"source"`\|`"sink"` | implied by `sources/`/`sinks/`; **required** in extension dirs and uploaded zips (every in-repo manifest sets it) |
+  | `kind` | `"source"`\|`"sink"` | implied by `sources/`/`sinks/`; **required** in extension dirs and uploaded zips (every catalog manifest sets it) |
+  | `description` | string | one line shown in the module catalog (optional) |
   | `python` | `[str]` | PEP 508 requirement strings (markers allowed) |
   | `depends` | `[str]` | module types whose *code* this one imports |
   | `system` | `[str]` | setup pip can't perform; printed, never executed |
@@ -267,6 +268,34 @@ environment, and a sync makes the installed packages match them **exactly**.
   packages are missing then show as unavailable (§5.3).
 
 ---
+
+### 5.7 Module catalog (`engine.catalog`)
+
+- No module ships with the engine. Modules are published by a **catalog**: a
+  static tree with `index.json` at its root and module folders at
+  `sources/<type>/…`, `sinks/<type>/…` (the `sensor-patchbay-modules` repo).
+- `index.json` is `{"format": 1, "modules": [Entry…]}`. An Entry has `name`,
+  `kind`, `description`, `depends`, `python`, `system`, `digest`, and `files`:
+  `[{path, sha256, size}]`. Each `path` is relative to the index URL and must
+  lie under `<kind>s/<name>/`; anything else rejects the whole index. A client
+  refuses a `format` newer than it knows.
+- `digest` = sha256 over the sorted lines `relpath "\0" sha256 "\n"` of the
+  module's files (relpath inside the module folder), excluding dotfiles,
+  `__pycache__`, `*.pyc`, `*.part` and declared `assets`. An installed module
+  whose recomputed digest differs is reported as `update`.
+- Location, first match wins: `$PATCHBAY_CATALOG`, `patchbay.toml` `catalog`,
+  the built-in default. Plain paths and directories are allowed.
+- **Install** (`name`): fetch the index, compute `name` plus the transitive
+  closure of `depends` (cycles and unknown names are errors). Download every
+  module not yet installed (plus `name` itself, always), check every file's
+  sha256, then install it through the same path as an uploaded zip (§5.6),
+  into the data folder. Then sync.
+- **Remove** (`name`): delete the folder, but only if it is in the data folder
+  (not an extension dir). Report the installed modules that depend on it.
+  Then sync.
+- HTTP: `GET /api/catalog[?refresh=1]`, `POST /api/catalog/install {name}`,
+  `POST /api/catalog/remove {name}`. Both POSTs answer like `POST /api/sync`,
+  plus `installed` / `removed`. Same origin/host checks as every POST.
 
 ## 6. Source contract (`sources.base.Source`)
 

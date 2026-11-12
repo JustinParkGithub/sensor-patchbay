@@ -1,6 +1,7 @@
 # patchbay.toml — the whole rig, declared (think NixOS configuration.nix).
 #
-# Every module folder under sources/ and sinks/ is enabled unless disabled here;
+# Every module folder under sources/ and sinks/ (installed from the catalog:
+# Browse... in the UI) is enabled unless disabled here;
 # each one's module.toml says what it needs. On start, `python run.py` makes the
 # environment match exactly: it installs what enabled modules need and removes
 # everything else (see engine/modules.py). Edit, re-run, done.
@@ -14,6 +15,11 @@ python = ["uv", "pywebview>=5.3", "pystray>=0.19.5", "pillow>=10"]
 # Module types to leave out entirely: never imported, and their packages removed.
 # e.g. disable = ["cv"]   # skips mediapipe + opencv
 disable = []
+
+# Where the module catalog's index.json lives: a URL or a local path / checkout.
+# Defaults to the sensor-patchbay-modules repo on GitHub; $PATCHBAY_CATALOG wins.
+# e.g. catalog = "~/Dev/sensor-patchbay-modules"
+# catalog = ""
 
 # Modules to add on start, in --source/--sink spec form "type[:k=v,...]".
 # Nothing autostarts by default — add modules live from the UI or the console.

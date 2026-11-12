@@ -172,6 +172,25 @@ export class Patchbay {
   }
 
   /**
+   * Install a module from the online catalog (with whatever it depends on), or
+   * delete an installed one. The engine syncs either way; resolves with its
+   * reply so the caller can say what happened, or null if it refused.
+   */
+  async fromCatalog(
+    action: 'install' | 'remove',
+    name: string,
+  ): Promise<Awaited<ReturnType<typeof api.catalogInstall | typeof api.catalogRemove>> | null> {
+    try {
+      const res = action === 'install' ? await api.catalogInstall(name) : await api.catalogRemove(name)
+      this.set({ plugins: res.plugins, presets: res.presets, presetInfo: res.preset_info })
+      return res
+    } catch (e) {
+      toastError(e)
+      return null
+    }
+  }
+
+  /**
    * Install each file (a module `.zip` or a preset `.json`), then sync once so
    * new modules show up in the pickers. Resolves with a line per file.
    */

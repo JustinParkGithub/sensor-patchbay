@@ -18,7 +18,7 @@ from __future__ import annotations
 import shlex
 from pathlib import Path
 
-from engine import library, presets, registry
+from engine import catalog, library, presets, registry
 
 
 class Console:
@@ -80,7 +80,10 @@ commands:
   graph                          show the current connections
   presets                        list preset files (with what each needs that's missing)
   load <name> | save [name] | delete <name>
+  catalog [query] [--refresh]    search the online module catalog
+  install <name>                 download a module (and what it depends on) from the catalog
   install <file.zip|file.json>   add a module folder (zipped) or a preset file
+  uninstall <name>               delete an installed module from the data folder
   sync                           re-read modules + presets, install module packages
   panic [on|off]                 toggle emergency stop
   rate [hz]                      show or set the engine tick rate (live)
@@ -156,11 +159,37 @@ commands:
             for m in info.get(name, {}).get("missing", []):
                 print(f"      ! needs {m['kind']} '{m['id']}': {m['reason']}")
 
+    def cmd_catalog(self, args):
+        refresh = "--refresh" in args
+        words = [a.lower() for a in args if a != "--refresh"]
+        listing = catalog.listing(refresh=refresh)
+        if listing["cached"]:
+            print(f"(offline: showing the cached catalog; {listing['error']})")
+        shown = [m for m in listing["modules"]
+                 if all(w in f"{m['name']} {m['kind']} {m['description']}".lower() for w in words)]
+        if not shown:
+            print("nothing matches" if words else "the catalog is empty")
+        for m in shown:
+            mark = {"installed": "✓", "update": "↑", "local": "·"}.get(m["state"], " ")
+            print(f"  {mark} {m['kind']:6} {m['name']:10} {m['description']}")
+        print(f"\n  ✓ installed  ↑ update available  · local only    ({listing['url']})")
+
     def cmd_install(self, args):
         if len(args) != 1:
-            print("usage: install <file.zip|file.json>")
+            print("usage: install <name> | install <file.zip|file.json>")
             return
         path = Path(args[0]).expanduser()
+        if not path.is_file() and path.suffix.lower() not in (".zip", ".json"):
+            results = catalog.install(args[0])
+            for res in results:
+                verb = "updated" if res["replaced"] else "installed"
+                print(f"{verb} {res['module_kind']} '{res['name']}'")
+            if results:
+                print("syncing...")
+                self.cmd_sync([])
+            else:
+                print(f"'{args[0]}' is already installed")
+            return
         res = library.install_upload(path.name, path.read_bytes())
         verb = "replaced" if res["replaced"] else "installed"
         if res["kind"] == "preset":
@@ -170,6 +199,16 @@ commands:
         else:
             print(f"{verb} {res['module_kind']} '{res['name']}'; syncing...")
             self.cmd_sync([])
+
+    def cmd_uninstall(self, args):
+        if len(args) != 1:
+            print("usage: uninstall <name>")
+            return
+        res = catalog.remove(args[0])
+        print(f"removed {res['kind']} '{res['name']}'")
+        if res["needed_by"]:
+            print(f"  ! still needed by: {', '.join(res['needed_by'])}")
+        self.cmd_sync([])
 
     def cmd_sync(self, args):
         report = library.sync()      # prints its own log as it goes

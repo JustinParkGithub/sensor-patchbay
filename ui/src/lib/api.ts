@@ -4,6 +4,7 @@
  */
 
 import type {
+  CatalogListing,
   ChainNode,
   Connection,
   EngineState,
@@ -54,6 +55,15 @@ export interface ConnectionPatch {
   enabled?: boolean
 }
 
+/** What every call that ends in a sync answers with. */
+export interface SyncedResponse {
+  ok: boolean
+  report: SyncReport
+  plugins: PluginCatalog
+  presets: string[]
+  preset_info: PresetInfoMap
+}
+
 export const api = {
   state: () => request<EngineState>('GET', '/api/state'),
   graph: () => request<Graph>('GET', '/api/graph'),
@@ -101,14 +111,21 @@ export const api = {
     ),
 
   /** Re-read modules + presets on disk and install module packages; can take a while. */
-  sync: () =>
-    request<{
-      ok: boolean
-      report: SyncReport
-      plugins: PluginCatalog
-      presets: string[]
-      preset_info: PresetInfoMap
-    }>('POST', '/api/sync', {}),
+  sync: () => request<SyncedResponse>('POST', '/api/sync', {}),
+
+  /** The online module catalog; `refresh` skips the engine's 5-minute memo. */
+  catalog: (refresh = false) =>
+    request<CatalogListing>('GET', `/api/catalog${refresh ? '?refresh=1' : ''}`),
+  /** Download a module (and its depends) from the catalog, then sync. */
+  catalogInstall: (name: string) =>
+    request<SyncedResponse & { installed: UploadResult[] }>('POST', '/api/catalog/install', { name }),
+  /** Delete an installed module from the data folder, then sync. */
+  catalogRemove: (name: string) =>
+    request<SyncedResponse & { removed: { name: string; kind: ModuleKind; needed_by: string[] } }>(
+      'POST',
+      '/api/catalog/remove',
+      { name },
+    ),
 
   /** A module `.zip` or a preset `.json`, sent as the raw body. */
   upload: async (file: File): Promise<UploadResult> => {

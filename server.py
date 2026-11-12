@@ -20,6 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+from engine import catalog as module_catalog
 from engine import library, paths
 from engine.nodes import NODE_SPECS
 from engine.registry import SINKS, SOURCES, catalog
@@ -128,6 +129,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._preview(p[len("/api/source/"):-len("/preview")])
         if p == "/api/plugins":
             return self._json(self._plugins())
+        if p == "/api/catalog":
+            refresh = parse_qs(urlsplit(self.path).query).get("refresh", ["0"])[0] not in ("", "0")
+            try:
+                return self._json(module_catalog.listing(refresh=refresh))
+            except module_catalog.CatalogError as ex:
+                return self._json({"error": str(ex)}, 502)
         if p == "/api/graph":
             return self._json(self.engine.graph_dict())
         if p == "/api/nodes":
@@ -210,13 +217,30 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": ok, "presets": e.list_presets(),
                                "preset_info": e.preset_info()})
         if p == "/api/sync":
+            return self._synced(upgrade=bool(b.get("upgrade")))
+        if p in ("/api/catalog/install", "/api/catalog/remove"):
+            name = b.get("name")
+            if not isinstance(name, str) or not name:
+                return self._json({"error": "need a module name"}, 400)
             try:
-                report = library.sync(upgrade=bool(b.get("upgrade")))
-            except Exception as ex:
-                return self._json({"error": f"sync failed: {ex}"}, 500)
-            return self._json({"ok": True, "report": report, "plugins": self._plugins(),
-                               "presets": e.list_presets(), "preset_info": e.preset_info()})
+                if p.endswith("/install"):
+                    done = {"installed": module_catalog.install(name)}
+                else:
+                    done = {"removed": module_catalog.remove(name)}
+            except module_catalog.CatalogError as ex:
+                return self._json({"error": str(ex)}, 400)
+            return self._synced(**done)
         return self._send(404, b'{"error":"not found"}')
+
+    def _synced(self, upgrade=False, **extra):
+        """Sync, then reply with everything the UI refreshes after one."""
+        e = self.engine
+        try:
+            report = library.sync(upgrade=upgrade)
+        except Exception as ex:
+            return self._json({"error": f"sync failed: {ex}"}, 500)
+        return self._json({"ok": True, **extra, "report": report, "plugins": self._plugins(),
+                           "presets": e.list_presets(), "preset_info": e.preset_info()})
 
     # ---- uploads ---------------------------------------------
     def _upload(self):

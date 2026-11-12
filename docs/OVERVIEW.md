@@ -100,7 +100,7 @@ Pi, or read a new sensor?
 4. Start the app. Its packages get installed, and it appears in the dropdown.
 
 There's a complete, working example in
-[`sinks/gpio/`](../sinks/gpio/): it drives
+[`sinks/gpio/`](https://github.com/JustinParkGithub/sensor-patchbay-modules/tree/main/sinks/gpio): it drives
 Raspberry Pi GPIO pins — PWM channels for servos or a drone's ESCs, digital pins
 for relays — and, cleverly, falls back to just *printing* what it would do when
 you're building the patch on a laptop with no Pi attached. Copy it as your
@@ -132,8 +132,8 @@ the instant a mapping does something you didn't expect.
 
 ```
 engine/     the brain: signals · nodes · graph · loop · registry   (portable core) + modules (installs)
-sources/    one folder per source (joycon, mock, ds4, bmi160, bend4, cv camera hand tracker)
-sinks/      one folder per sink   (hid mouse+keyboard, dryrun, gpio) — your stuff goes in these two
+sources/    base.py + installed source folders (from the module catalog; git-ignored)
+sinks/      base.py + installed sink folders   — the catalog repo is sensor-patchbay-modules
 patchbay.toml / patchbay.lock   what's enabled / exactly which packages that means
 ui/         the browser patch panel (plain TypeScript, no framework; built dist/ is committed)
 presets/    saved graphs, plain JSON
