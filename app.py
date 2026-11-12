@@ -32,12 +32,10 @@ tab / no tray) rather than failing.
 from __future__ import annotations
 
 import base64
-import json
 import os
 import subprocess
 import sys
 import threading
-import urllib.request
 import webbrowser
 from pathlib import Path
 
@@ -59,18 +57,6 @@ def build_parser():
     ap.add_argument("--no-tray", action="store_true",
                     help="no tray icon; closing the window quits")
     return ap
-
-
-def _running_instance(host: str, port: int) -> str | None:
-    """The URL of a patch panel already serving on host:port, if there is one."""
-    url = f"http://{host}:{port}"
-    try:
-        with urllib.request.urlopen(f"{url}/api/presets", timeout=0.5) as res:
-            if "presets" in json.load(res):
-                return url
-    except Exception:
-        pass
-    return None
 
 
 def _reveal(folder):
@@ -274,7 +260,7 @@ def main(argv=None):
     if any(getattr(args, flag) for flag in CONSOLE_FLAGS):
         return run.main([a for a in argv if a not in APP_FLAGS])
 
-    existing = _running_instance(args.host, args.port)
+    existing = run.running_instance(args.host, args.port)
     if existing:
         print(f"[app] already running at {existing}; opening it")
         webbrowser.open(existing)
@@ -284,13 +270,8 @@ def main(argv=None):
         return
     engine = run.start_engine(args)
     desktop = Desktop(engine, "", browser=args.browser, tray=not args.no_tray)
-    from server import serve
-    try:
-        httpd = serve(engine, args.host, args.port, on_quit=desktop.quit)
-    except OSError as e:          # the port is taken by something else: pick a free one
-        print(f"[app] port {args.port} unavailable ({e}); using a free port")
-        httpd = serve(engine, args.host, 0, on_quit=desktop.quit)
-    desktop.url = url = f"http://{args.host}:{httpd.server_address[1]}"
+    httpd = run.serve_ui(engine, args, on_quit=desktop.quit)
+    desktop.url = f"http://{args.host}:{httpd.server_address[1]}"
     threading.Thread(target=httpd.serve_forever, name="httpd", daemon=True).start()
     print(f"[app] data folder: {paths.DATA}")
 

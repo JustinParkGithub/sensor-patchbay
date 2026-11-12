@@ -3,6 +3,10 @@
 A node implements ``process(x: float, dt: float) -> float`` and ``reset()``.
 ``NODE_SPECS`` describes the parameters so the web UI can build an editor with no
 hard-coded knowledge of any particular node.
+
+A node with a ``{"port": "source"}`` parameter also reads a second port off the
+bus: the connection copies that port's value into ``node.other`` before each
+``process`` call (see :class:`Combine`).
 """
 
 from __future__ import annotations
@@ -12,6 +16,7 @@ import math
 
 class Node:
     type = "identity"
+    input_port = None    # bus port copied into self.other each tick, if any
 
     def __init__(self, **params):
         self.params = params
@@ -271,15 +276,60 @@ class Hold(Node):
         return 1.0 if self.clock < self.until else 0.0
 
 
+class Combine(Node):
+    """Merge the cable's signal with a second source port (``input``).
+
+    gate    x while the other port is on, else 0 (e.g. gyro only while a button is held)
+    unless  x while the other port is off, else 0
+    add, mul, min, max   arithmetic on the two values
+    and, or              0/1 gate from x and the other port
+
+    "On" means ``>= level``. An unset or absent port reads as 0, so a ``gate``
+    stays closed until its other source exists.
+    """
+    type = "combine"
+
+    def __init__(self, **p):
+        super().__init__(**p)
+        self.input_port = p.get("input") or None
+        self.other = 0.0
+
+    def reset(self):
+        self.other = 0.0
+
+    def process(self, x, dt):
+        y = self.other
+        op = self.params.get("op", "gate")
+        level = float(self.params.get("level", 0.5))
+        if op == "gate":
+            return x if y >= level else 0.0
+        if op == "unless":
+            return 0.0 if y >= level else x
+        if op == "add":
+            return x + y
+        if op == "mul":
+            return x * y
+        if op == "min":
+            return min(x, y)
+        if op == "max":
+            return max(x, y)
+        if op == "and":
+            return 1.0 if x >= level and y >= level else 0.0
+        if op == "or":
+            return 1.0 if x >= level or y >= level else 0.0
+        return x
+
+
 NODE_CLASSES = {
     c.type: c for c in (
         Scale, Offset, Invert, Abs, Clamp, Deadzone, Expo, Quantize,
-        EMA, OneEuro, RateLimit, Threshold, Schmitt, Debounce, Toggle, Hold,
+        EMA, OneEuro, RateLimit, Threshold, Schmitt, Debounce, Toggle, Hold, Combine,
     )
 }
 
-# Parameter descriptions for the UI. {name: [default, min, max, step]} or
-# {name: {"choices": [...]}} for enums.
+# Parameter descriptions for the UI. {name: [default, min, max, step]},
+# {name: {"choices": [...]}} for enums, or {name: {"port": "source"}} for a
+# second input read off the bus.
 NODE_SPECS = {
     "scale":      {"factor": [1.0, -100.0, 100.0, 0.1]},
     "offset":     {"amount": [0.0, -10.0, 10.0, 0.01]},
@@ -297,7 +347,21 @@ NODE_SPECS = {
     "debounce":   {"ms": [300.0, 10.0, 5000.0, 10.0]},
     "toggle":     {"initial": [0.0, 0.0, 1.0, 1.0]},
     "hold":       {"ms": [120.0, 10.0, 5000.0, 10.0]},
+    "combine":    {"op": {"choices": ["gate", "unless", "add", "mul", "min", "max", "and", "or"]},
+                   "input": {"port": "source"},
+                   "level": [0.5, -180.0, 180.0, 0.05]},
 }
+
+
+def chain_inputs(chain: list | None) -> list[str]:
+    """The extra source ports a serialised chain reads (its ``combine`` inputs)."""
+    ports = []
+    for node in chain or []:
+        for name, spec in NODE_SPECS.get(node.get("type"), {}).items():
+            value = (node.get("params") or {}).get(name)
+            if isinstance(spec, dict) and "port" in spec and value:
+                ports.append(str(value))
+    return ports
 
 
 def make_node(type_: str, params: dict | None = None) -> Node:

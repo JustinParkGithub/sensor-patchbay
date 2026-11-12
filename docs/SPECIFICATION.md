@@ -84,7 +84,7 @@ contain `/`.
 
 ## 3. Transform nodes
 
-A node is a stateful single-input single-output DSP block:
+A node is a stateful DSP block with one output and, normally, one input:
 
 ```
 class Node:
@@ -99,13 +99,19 @@ class Node:
 - Node instances are **not** shared between connections; each connection builds
   its own chain (`Connection.rebuild`).
 - `engine.nodes.NODE_CLASSES` maps `type → class`; `make_node(type, params)`
-  constructs one. `NODE_SPECS` describes each node's editable parameters as either
-  `{name: [default, min, max, step]}` (numeric) or `{name: {"choices": [...]}}`
-  (enum). The GUI builds its editor solely from `NODE_SPECS`; adding a node type
-  requires adding to both `NODE_CLASSES` and `NODE_SPECS`.
+  constructs one. `NODE_SPECS` describes each node's editable parameters as
+  `{name: [default, min, max, step]}` (numeric), `{name: {"choices": [...]}}`
+  (enum) or `{name: {"port": "source"}}` (a source port id). The GUI builds its
+  editor solely from `NODE_SPECS`; adding a node type requires adding to both
+  `NODE_CLASSES` and `NODE_SPECS`.
+- A node with a non-empty `input_port` also has a second input: the connection
+  copies that bus port into `node.other` before each `process` call (absent ⇒
+  `0.0`). `engine.nodes.chain_inputs(chain)` lists the ports a serialised chain
+  reads this way. They count toward a preset's required modules, and removing a
+  source module removes every connection that reads it.
 
 Shipped node types: `scale, offset, invert, abs, clamp, deadzone, expo, quantize,
-ema, one_euro, rate_limit, threshold, schmitt, debounce, toggle, hold`.
+ema, one_euro, rate_limit, threshold, schmitt, debounce, toggle, hold, combine`.
 
 ---
 

@@ -15,6 +15,7 @@
  */
 
 import { setChildren, svg } from '../lib/dom'
+import { chainInputs } from '../lib/ports'
 import { jacks } from '../state/jacks'
 import { live } from '../state/live'
 import { patchbay } from '../state/patchbay'
@@ -34,6 +35,8 @@ interface Cable {
   /** Fat transparent stroke that catches clicks. */
   hit: SVGPathElement
   vis: SVGPathElement
+  /** One faint control line per `combine` input: that jack → this cable's sink. */
+  controls: Map<string, SVGPathElement>
 }
 
 interface Point {
@@ -66,6 +69,7 @@ export function cables(surface: HTMLElement): SVGSVGElement {
       const isEvent = state.portIndex.get(connection.source)?.port.type === 'event'
       cable.vis.setAttribute('stroke', isEvent ? 'var(--out)' : 'var(--bridge)')
       cable.vis.setAttribute('stroke-dasharray', isEvent ? '2 7' : '1 7')
+      syncControls(cable, chainInputs(connection, state.nodeSpecs))
       next.set(connection.id, cable)
     }
     paths = next
@@ -94,6 +98,11 @@ export function cables(surface: HTMLElement): SVGSVGElement {
       const d = bezier(from, to)
       cable.hit.setAttribute('d', d)
       cable.vis.setAttribute('d', d)
+      for (const [port, path] of cable.controls) {
+        const control = anchor(surface, origin, port)
+        if (control) path.setAttribute('d', bezier(control, to))
+        else path.removeAttribute('d')
+      }
     }
   }
 
@@ -122,7 +131,12 @@ export function cables(surface: HTMLElement): SVGSVGElement {
 
   sync(patchbay.state)
   patchbay.subscribe((state, prev) => {
-    if (state.graph !== prev.graph || state.portIndex !== prev.portIndex) sync(state)
+    if (
+      state.graph !== prev.graph ||
+      state.portIndex !== prev.portIndex ||
+      state.nodeSpecs !== prev.nodeSpecs
+    )
+      sync(state)
   })
 
   requestAnimationFrame(function frame() {
@@ -145,7 +159,26 @@ function createCable(id: string): Cable {
     onClick: () => patchbay.selectConnection(id),
   })
   const vis = svg('path', { 'data-id': id, fill: 'none', 'stroke-linecap': 'round' })
-  return { group: svg('g', null, hit, vis), hit, vis }
+  return { group: svg('g', null, hit, vis), hit, vis, controls: new Map() }
+}
+
+function syncControls(cable: Cable, ports: string[]): void {
+  const next = new Map<string, SVGPathElement>()
+  for (const port of ports) {
+    next.set(
+      port,
+      cable.controls.get(port) ??
+        svg('path', {
+          fill: 'none',
+          stroke: 'var(--out)',
+          'stroke-width': 1,
+          'stroke-opacity': 0.45,
+          'stroke-dasharray': '4 5',
+        }),
+    )
+  }
+  cable.controls = next
+  setChildren(cable.group, [cable.hit, cable.vis, ...next.values()])
 }
 
 /**

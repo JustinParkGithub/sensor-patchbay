@@ -56,14 +56,22 @@ export type NumericParamSpec = readonly [number, number, number, number]
 export interface ChoiceParamSpec {
   choices: string[]
 }
-export type ParamSpec = NumericParamSpec | ChoiceParamSpec
+/** A second input: the value is a source port id, read off the bus each tick. */
+export interface PortParamSpec {
+  port: 'source'
+}
+export type ParamSpec = NumericParamSpec | ChoiceParamSpec | PortParamSpec
 
 /** Parameters of one node type; `{}` for nodes that take none (invert, abs). */
 export type NodeSpec = Record<string, ParamSpec>
 export type NodeSpecs = Record<string, NodeSpec>
 
 export function isChoiceSpec(spec: ParamSpec): spec is ChoiceParamSpec {
-  return !Array.isArray(spec)
+  return 'choices' in spec
+}
+
+export function isPortSpec(spec: ParamSpec): spec is PortParamSpec {
+  return 'port' in spec
 }
 
 /** One constructor arg of a plugin, from its `ARGS` (see `engine/registry.py`). */

@@ -18,7 +18,9 @@ from __future__ import annotations
 import shlex
 from pathlib import Path
 
+
 from engine import catalog, library, presets, registry
+from engine.nodes import NODE_SPECS
 
 
 class Console:
@@ -77,6 +79,8 @@ commands:
   remove source <id> | remove sink <id>     drop an instance (alias: rm)
   connect <src.port> <sink.port> patch a cable (full ids, e.g. controller/gyro.y hid/mouse.dx)
   disconnect <conn-id>           remove a cable
+  combine <conn-id> <op> <port> [level]     add a second input to a cable's chain
+                                 op: gate unless add mul min max and or
   graph                          show the current connections
   presets                        list preset files (with what each needs that's missing)
   load <name> | save [name] | delete <name>
@@ -144,6 +148,24 @@ commands:
             print("usage: disconnect <conn-id>")
             return
         print("removed" if self.engine.remove_connection(args[0]) else "no such connection")
+
+    def cmd_combine(self, args):
+        if len(args) not in (3, 4):
+            print("usage: combine <conn-id> <op> <port> [level]   e.g. c_1234 gate ds4/btn.l1")
+            return
+        cid, op, port = args[:3]
+        chain = next((c["chain"] for c in self.engine.graph_dict()["connections"]
+                      if c["id"] == cid), None)
+        if chain is None:
+            print("no such connection")
+            return
+        if op not in NODE_SPECS["combine"]["op"]["choices"]:
+            print(f"unknown op {op!r}")
+            return
+        level = float(args[3]) if len(args) == 4 else 0.5
+        node = {"type": "combine", "params": {"op": op, "input": port, "level": level}}
+        self.engine.update_connection(cid, chain=[*chain, node])
+        print(f"{cid}: {op} with {port}")
 
     def cmd_graph(self, args):
         g = self.engine.graph_dict()

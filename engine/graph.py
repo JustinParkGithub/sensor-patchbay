@@ -27,8 +27,10 @@ class Connection:
         self.activity = 0.0
         self.last = 0.0
 
-    def process(self, x, dt):
+    def process(self, x, dt, bus):
         for node in self._nodes:
+            if node.input_port:
+                node.other = bus.get(node.input_port, 0.0)
             x = node.process(x, dt)
         self.last = x
         self.activity += 0.25 * (min(1.0, abs(x)) - self.activity)
@@ -91,7 +93,7 @@ class Graph:
                 c.last = 0.0
                 c.activity += 0.25 * (0.0 - c.activity)
                 continue
-            v = c.process(source_values.get(c.source, 0.0), dt)
+            v = c.process(source_values.get(c.source, 0.0), dt, source_values)
             out[c.sink] = out.get(c.sink, 0.0) + v
         return out
 

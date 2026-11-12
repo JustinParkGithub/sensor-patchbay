@@ -25,6 +25,7 @@ import json
 import re
 
 from . import paths, registry
+from .nodes import chain_inputs
 
 # Also a file name: no separators, no leading dot.
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}")
@@ -95,7 +96,9 @@ def namespaces(preset: dict) -> dict[tuple[str, str], None]:
     """``{(kind, namespace)}`` that a preset's connections use, in order."""
     out: dict[tuple[str, str], None] = {}
     for c in preset.get("connections", []):
-        for kind, port in (("source", c.get("source", "")), ("sink", c.get("sink", ""))):
+        ports = [("source", c.get("source", "")), ("sink", c.get("sink", "")),
+                 *(("source", p) for p in chain_inputs(c.get("chain")))]
+        for kind, port in ports:
             ns = str(port).partition("/")[0]
             if ns and ns not in BUILTIN:
                 out[(kind, ns)] = None

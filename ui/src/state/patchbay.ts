@@ -62,7 +62,10 @@ type Listener = (state: Readonly<PatchbayState>, prev: Readonly<PatchbayState>) 
 function derive(base: BaseState, prev?: PatchbayState): PatchbayState {
   const portIndex =
     prev && prev.modules === base.modules ? prev.portIndex : buildPortIndex(base.modules)
-  const wired = prev && prev.graph === base.graph ? prev.wired : wiredPorts(base.graph)
+  const wired =
+    prev && prev.graph === base.graph && prev.nodeSpecs === base.nodeSpecs
+      ? prev.wired
+      : wiredPorts(base.graph, base.nodeSpecs)
   const compatible =
     prev && prev.portIndex === portIndex && prev.armed === base.armed
       ? prev.compatible

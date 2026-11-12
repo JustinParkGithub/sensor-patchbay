@@ -1,5 +1,5 @@
 import { h } from '../lib/dom'
-import { isChoiceSpec } from '../types'
+import { isChoiceSpec, isPortSpec } from '../types'
 import type { NumericParamSpec, ParamSpec, ParamValue } from '../types'
 
 export interface ParamField {
@@ -21,7 +21,9 @@ export function paramField(
   spec: ParamSpec,
   value: ParamValue | undefined,
   onCommit: (value: ParamValue) => void,
+  sourcePorts: string[] = [],
 ): ParamField {
+  if (isPortSpec(spec)) return portField(name, sourcePorts, value, onCommit)
   if (isChoiceSpec(spec)) {
     const shown = (v: ParamValue | undefined) => String(v ?? spec.choices[0] ?? '')
     const select = h('select', null, ...spec.choices.map((c) => h('option', { value: c }, c)))
@@ -35,6 +37,29 @@ export function paramField(
     }
   }
   return numberField(name, spec, value, onCommit)
+}
+
+function portField(
+  name: string,
+  ports: string[],
+  value: ParamValue | undefined,
+  onCommit: (value: string) => void,
+): ParamField {
+  const select = h('select', null)
+  const show = (v: ParamValue | undefined) => {
+    const current = String(v ?? '')
+    // A preset can name a port whose module isn't running: show it, don't blank it.
+    const missing = current && !ports.includes(current) ? [current] : []
+    select.replaceChildren(
+      h('option', { value: '' }, '— pick a port —'),
+      ...missing.map((p) => h('option', { value: p }, `${p} (not running)`)),
+      ...ports.map((p) => h('option', { value: p }, p)),
+    )
+    select.value = current
+  }
+  show(value)
+  select.addEventListener('change', () => onCommit(select.value))
+  return { element: h('label', null, name, select), set: show }
 }
 
 function numberField(

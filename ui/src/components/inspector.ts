@@ -1,8 +1,8 @@
 import { h } from '../lib/dom'
-import { shortPortId } from '../lib/ports'
+import { shortPortId, sourcePorts } from '../lib/ports'
 import { patchbay } from '../state/patchbay'
-import { isChoiceSpec } from '../types'
-import type { ChainNode, Connection, NodeSpec, NodeSpecs, ParamValue } from '../types'
+import { isChoiceSpec, isPortSpec } from '../types'
+import type { ChainNode, Connection, ModuleSpec, NodeSpec, NodeSpecs, ParamValue } from '../types'
 import { paramField } from './paramField'
 import type { ParamField } from './paramField'
 
@@ -19,13 +19,13 @@ export function inspector(): HTMLElement {
   let enabled: HTMLInputElement | null = null
   let chain: ChainEditor | null = null
 
-  const build = (connection: Connection, specs: NodeSpecs) => {
+  const build = (connection: Connection, specs: NodeSpecs, modules: ModuleSpec[]) => {
     const id = connection.id
     shownId = id
     const toggle = h('input', { type: 'checkbox', id: 'inspEnabled', checked: connection.enabled })
     toggle.addEventListener('change', () => void patchbay.setEnabled(id, toggle.checked))
     enabled = toggle
-    chain = new ChainEditor(connection, specs)
+    chain = new ChainEditor(connection, specs, modules)
 
     aside.replaceChildren(
       h(
@@ -72,7 +72,12 @@ export function inspector(): HTMLElement {
   }
 
   patchbay.subscribe((state, prev) => {
-    if (state.selected === prev.selected && state.nodeSpecs === prev.nodeSpecs) return
+    if (
+      state.selected === prev.selected &&
+      state.nodeSpecs === prev.nodeSpecs &&
+      state.modules === prev.modules
+    )
+      return
     const { selected } = state
     if (!selected) {
       shownId = enabled = chain = null
@@ -80,10 +85,10 @@ export function inspector(): HTMLElement {
       aside.replaceChildren()
       return
     }
-    if (selected.id !== shownId || !enabled || !chain) build(selected, state.nodeSpecs)
+    if (selected.id !== shownId || !enabled || !chain) build(selected, state.nodeSpecs, state.modules)
     else {
       enabled.checked = selected.enabled
-      chain.update(selected, state.nodeSpecs)
+      chain.update(selected, state.nodeSpecs, state.modules)
     }
     aside.hidden = false
   })
@@ -96,7 +101,7 @@ function defaultParams(spec: NodeSpec): Record<string, ParamValue> {
   return Object.fromEntries(
     Object.entries(spec).map(([key, param]) => [
       key,
-      isChoiceSpec(param) ? (param.choices[0] ?? '') : param[0],
+      isPortSpec(param) ? '' : isChoiceSpec(param) ? (param.choices[0] ?? '') : param[0],
     ]),
   )
 }
@@ -111,13 +116,15 @@ class ChainEditor {
   readonly element: HTMLElement
   private connection: Connection
   private specs: NodeSpecs | null = null
+  private modules: ModuleSpec[] | null = null
+  private sources: string[] = []
   /** Node types in order — when unchanged, a refresh updates values in place. */
   private shape: string | null = null
   private fields: Map<string, ParamField>[] = []
   private readonly list = h('div', { id: 'chainList' })
   private readonly typeSelect = h('select', { id: 'nodeType' })
 
-  constructor(connection: Connection, specs: NodeSpecs) {
+  constructor(connection: Connection, specs: NodeSpecs, modules: ModuleSpec[]) {
     this.connection = connection
     this.element = h(
       'div',
@@ -131,11 +138,16 @@ class ChainEditor {
         h('button', { id: 'addNode', type: 'button', onClick: () => this.addNode() }, '+ add node'),
       ),
     )
-    this.update(connection, specs)
+    this.update(connection, specs, modules)
   }
 
-  update(connection: Connection, specs: NodeSpecs): void {
+  update(connection: Connection, specs: NodeSpecs, modules: ModuleSpec[]): void {
     this.connection = connection
+    const modulesChanged = modules !== this.modules
+    if (modulesChanged) {
+      this.modules = modules
+      this.sources = sourcePorts(modules)
+    }
     const specsChanged = specs !== this.specs
     if (specsChanged) {
       this.specs = specs
@@ -146,7 +158,7 @@ class ChainEditor {
     }
 
     const shape = JSON.stringify(connection.chain.map((node) => node.type))
-    if (specsChanged || shape !== this.shape) {
+    if (specsChanged || modulesChanged || shape !== this.shape) {
       this.shape = shape
       this.render()
       return
@@ -174,7 +186,7 @@ class ChainEditor {
         paramField(name, spec, node.params[name], (value) => {
           const current = this.connection.chain[index]
           if (current) this.updateNode(index, { ...current, params: { ...current.params, [name]: value } })
-        }),
+        }, this.sources),
       )
     }
     this.fields[index] = fields

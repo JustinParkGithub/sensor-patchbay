@@ -1,0 +1,3 @@
+# OS media keys + volume. Needs what the hid sink needs.
+kind = "sink"
+depends = ["hid"]   # subclasses sinks.hid.MouseKeyboardSink

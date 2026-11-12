@@ -1,6 +1,7 @@
 /** Port-id arithmetic and value formatting shared across the patch panel. */
 
-import type { Graph, ModuleSpec, PortSpec } from '../types'
+import { isPortSpec } from '../types'
+import type { Connection, Graph, ModuleSpec, NodeSpecs, PortSpec } from '../types'
 
 /** Graph-wide address of a jack: `module/port`. */
 export function portId(moduleId: string, portLocalId: string): string {
@@ -37,14 +38,34 @@ export function buildPortIndex(modules: ModuleSpec[]): Map<string, PortEntry> {
   return index
 }
 
+/** The extra source ports a cable's chain reads (its `combine` inputs). */
+export function chainInputs(connection: Connection, specs: NodeSpecs): string[] {
+  const ports: string[] = []
+  for (const node of connection.chain) {
+    for (const [name, spec] of Object.entries(specs[node.type] ?? {})) {
+      const value = node.params[name]
+      if (isPortSpec(spec) && typeof value === 'string' && value) ports.push(value)
+    }
+  }
+  return ports
+}
+
 /** Every port that currently has a cable on it, for the "wired" jack style. */
-export function wiredPorts(graph: Graph): Set<string> {
+export function wiredPorts(graph: Graph, specs: NodeSpecs): Set<string> {
   const used = new Set<string>()
   for (const c of graph.connections) {
     used.add(c.source)
     used.add(c.sink)
+    for (const port of chainInputs(c, specs)) used.add(port)
   }
   return used
+}
+
+/** Every patchable source port, for a node's second-input picker. */
+export function sourcePorts(modules: ModuleSpec[]): string[] {
+  return modules
+    .filter((m) => m.kind === 'source')
+    .flatMap((m) => m.ports.filter((p) => !isPlaceholder(p)).map((p) => portId(m.id, p.id)))
 }
 
 /**

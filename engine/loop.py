@@ -21,6 +21,7 @@ from pathlib import Path
 
 from . import presets, registry
 from .graph import Graph
+from .nodes import chain_inputs
 from .signals import ModuleSpec, PortSpec, EVENT
 
 
@@ -293,6 +294,8 @@ class EngineLoop:
         self.graph.connections = [
             c for c in self.graph.connections
             if not getattr(c, side).startswith(prefix)
+            and not (side == "source"
+                     and any(p.startswith(prefix) for p in chain_inputs(c.chain)))
         ]
         return before - len(self.graph.connections)
 

@@ -238,6 +238,10 @@ the module README covers what pip can't do.
 | `controller-air-mouse` | point a motion controller to move the cursor | `controller`, `hid` |
 | `controller-tilt-keys` | tilt a motion controller for WASD, shake for Esc | `controller`, `hid` |
 | `bend4-mouse-keyboard` | bend fingers to look, walk and jump | `bend4`, `hid` |
+| `hotkey` | sink | key combos on one gate (`combo.ctrl+c`), pressed in order; `combos=` picks the jacks | same as `hid` |
+| `media` | sink | play/pause, next, previous, mute, volume keys, and `volume.rate` for a stick or tilt | same as `hid` |
+| `osc` | sink | OSC floats over UDP to `host:port`, for DAWs, lighting and visual tools | — |
+| `webhook` | sink | a rising edge requests `url1`..`url4` (set on the sink, never in a preset) | — |
 
 `python run.py --sync` prints every enabled module's system-setup notes.
 
@@ -444,8 +448,39 @@ checked against the namespaces its connections use.
 | `debounce` | rising edge → one pulse + lockout |
 | `hold` | stretch a pulse so it lasts at least N ms |
 | `toggle` | rising edge flips a latched 0/1 |
+| `combine` | merge the cable with a second source port (see below) |
 
 `GET /api/nodes` returns the parameter spec the UI builds its editor from.
+
+### Combining two sources
+
+A cable carries one source, and `combine` adds a second. Click a cable, add a
+`combine` node, and pick the other port in its `input` field; a dashed line on the
+panel shows the link. For example, to move the mouse only while L1 is held:
+
+```json
+{"source": "ds4/gyro.y", "sink": "hid/mouse.dx",
+ "chain": [{"type": "combine", "params": {"op": "gate", "input": "ds4/btn.l1"}},
+           {"type": "scale", "params": {"factor": 10.0}}]}
+```
+
+| `op` | output |
+|---|---|
+| `gate` | the signal while `input` is on, else 0 |
+| `unless` | the signal while `input` is off, else 0 |
+| `add`, `mul`, `min`, `max` | arithmetic on the two values |
+| `and`, `or` | 0/1 from both values |
+
+`presets/ds4-gyro-clutch.json` is the full version. "On" means `>= level` (default
+0.5), so an analog trigger can gate too. The node
+works anywhere in the chain, and `input` reads the port's raw value. If its module
+isn't running, `input` reads 0: `gate` stays closed, and `unless` stays open.
+Removing a module also drops cables that use it as an `input`.
+
+A `gate`/`unless` pair on one modifier button gives each button a second function,
+like a macropad layer: see `presets/ds4-macropad.json`, where L1 turns play/pause
+into next. For the other direction, one source to several sinks, patch one cable to
+each. On the console: `combine <conn-id> <op> <port> [level]`.
 
 ---
 

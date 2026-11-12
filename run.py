@@ -31,9 +31,11 @@ so a headless board can come up ready; nothing here can't also be done live.
 Modules listed in patchbay.toml's ``autostart`` are added on start (none by
 default); ``--no-autostart`` ignores that list for one run.
 
-Then open http://127.0.0.1:8420 in a browser on the same machine. The desktop
-app (app.py) is this same startup in a native window with a tray icon; its
-``patchbay`` executable takes every flag above.
+Then open http://127.0.0.1:8420 in a browser on the same machine. If another
+program holds that port, a free one is used instead and the URL is printed; if a
+patch panel already holds it, this exits rather than start a second engine. The
+desktop app (app.py) is this same startup in a native window with a tray icon;
+its ``patchbay`` executable takes every flag above.
 """
 
 from __future__ import annotations
@@ -41,9 +43,11 @@ from __future__ import annotations
 import _thread
 import argparse
 import signal
+import json
 import sys
 import threading
 import time
+import urllib.request
 
 if sys.version_info < (3, 11):
     sys.exit("sensor-patchbay needs Python 3.11+ (found %d.%d)" % sys.version_info[:2])
@@ -85,7 +89,6 @@ def load_graph(name: str | None) -> Graph:
         return Graph(name="untitled")
     path = PRESETS / f"{name}.json"
     if path.is_file():
-        import json
         d = json.loads(path.read_text())
         d.setdefault("name", name)
         print(f"[preset] loaded {name}")
@@ -253,6 +256,28 @@ def start_engine(args) -> EngineLoop:
     return engine
 
 
+def running_instance(host: str, port: int) -> str | None:
+    """The URL of a patch panel already serving on host:port, if there is one."""
+    url = f"http://{host}:{port}"
+    try:
+        with urllib.request.urlopen(f"{url}/api/presets", timeout=0.5) as res:
+            if "presets" in json.load(res):
+                return url
+    except Exception:
+        pass
+    return None
+
+
+def serve_ui(engine, args, on_quit):
+    """Bind the web UI to ``--port``, or to a free port if something else holds it."""
+    from server import serve
+    try:
+        return serve(engine, args.host, args.port, on_quit=on_quit)
+    except OSError as e:
+        print(f"[ui] port {args.port} unavailable ({e}); using a free port")
+        return serve(engine, args.host, 0, on_quit=on_quit)
+
+
 def main(argv=None):
     # Started in the background (`python run.py &`, some launchers), SIGINT
     # arrives ignored. Ctrl+C couldn't stop us then, and neither could the UI's
@@ -262,14 +287,19 @@ def main(argv=None):
     args = build_parser().parse_args(argv)
     if prepare(args):
         return
+    if not args.no_ui:
+        existing = running_instance(args.host, args.port)
+        if existing:
+            print(f"patchbay is already running at {existing}; stop it first, "
+                  "or pass --port to run a second engine")
+            return 1
     engine = start_engine(args)
 
     httpd = None
     if not args.no_ui:
-        from server import serve
         # The UI's Quit lands here like a Ctrl+C, so the same cleanup runs.
-        httpd = serve(engine, args.host, args.port, on_quit=_thread.interrupt_main)
-        url = f"http://{args.host}:{args.port}"
+        httpd = serve_ui(engine, args, on_quit=_thread.interrupt_main)
+        url = f"http://{args.host}:{httpd.server_address[1]}"
         print(f"\n  patchbay UI  ->  {url}")
 
     try:
