@@ -24,3 +24,6 @@ ui/node_modules/
 # Resolved from whichever modules are installed, so it differs per machine.
 /patchbay.lock
 .catalog-cache.json
+# Presets come from the catalog (or are your own); none are tracked here.
+/presets/*.json
+/presets/.install-records

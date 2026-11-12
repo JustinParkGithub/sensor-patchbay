@@ -15,7 +15,8 @@ import { patchbay } from '../state/patchbay'
 import { toast } from '../state/toast'
 import type { CatalogListing, CatalogModule, ModuleKind } from '../types'
 
-type KindFilter = 'all' | ModuleKind
+type KindFilter = 'all' | ModuleKind | 'preset'
+const FILTERS = ['all', 'source', 'sink', 'preset'] as const
 
 function stateLabel(m: CatalogModule): string {
   switch (m.state) {
@@ -43,7 +44,7 @@ function versionText(m: CatalogModule): string {
 /** What the install button says, or null when there's nothing to install. */
 function installLabel(m: CatalogModule): string | null {
   if (m.state === 'available') return 'Install'
-  if (m.version === null) return null // not in the catalog: nothing to install from
+  if (!m.in_catalog) return null // nothing to install from
   if (m.state === 'update') return m.change === 'downgrade' ? 'Downgrade' : 'Update'
   if (m.state === 'modified') return 'Reinstall'
   if (m.state === 'local') return 'Replace'
@@ -53,9 +54,9 @@ function installLabel(m: CatalogModule): string | null {
 /** Installing over this would lose files nobody installed. */
 function overwrites(m: CatalogModule): string | null {
   if (m.state === 'modified')
-    return `"${m.name}" was changed after it was installed. Reinstalling replaces those changes with the catalog's ${m.version ?? ''}.`
+    return `"${m.name}" was changed after it was installed. Reinstalling replaces those changes with the catalog's ${m.version ?? 'copy'}.`
   if (m.state === 'local')
-    return `"${m.name}" wasn't installed from the catalog. Replacing it overwrites its files with the catalog's ${m.version ?? ''}.`
+    return `"${m.name}" wasn't installed from the catalog. Replacing it overwrites it with the catalog's ${m.version ?? 'copy'}.`
   return null
 }
 
@@ -71,7 +72,8 @@ function kb(bytes: number): string {
 
 /** True if every whitespace-separated word of `query` is in the module's text. */
 function matches(m: CatalogModule, query: string): boolean {
-  const text = `${m.name} ${m.kind} ${m.description} ${m.depends.join(' ')}`.toLowerCase()
+  const needs = (m.requires ?? []).map((r) => r.id)
+  const text = `${m.name} ${m.kind} ${m.description} ${m.depends.join(' ')} ${needs.join(' ')}`.toLowerCase()
   return query
     .toLowerCase()
     .split(/\s+/)
@@ -81,17 +83,18 @@ function matches(m: CatalogModule, query: string): boolean {
 
 export function catalogButton(isBusy: () => boolean): HTMLButtonElement {
   let listing: CatalogListing | null = null
-  let working: { name: string; action: 'install' | 'remove' } | null = null
+  let working: { key: string; action: 'install' | 'remove' } | null = null
+  const key = (m: CatalogModule) => `${m.kind}:${m.name}`
   let kind: KindFilter = 'all'
 
   const search = h('input', {
     type: 'search',
-    placeholder: 'search modules…',
+    placeholder: 'search modules and presets…',
     'aria-label': 'search modules',
     className: 'catalog-search',
     onInput: () => paint(),
   })
-  const kindButtons = (['all', 'source', 'sink'] as const).map((k) =>
+  const kindButtons = FILTERS.map((k) =>
     h(
       'button',
       {
@@ -99,7 +102,7 @@ export function catalogButton(isBusy: () => boolean): HTMLButtonElement {
         className: k === kind ? 'on' : '',
         onClick: () => {
           kind = k
-          kindButtons.forEach((b, i) => (b.className = (['all', 'source', 'sink'] as const)[i] === kind ? 'on' : ''))
+          kindButtons.forEach((b, i) => (b.className = FILTERS[i] === kind ? 'on' : ''))
           paint()
         },
       },
@@ -117,11 +120,11 @@ export function catalogButton(isBusy: () => boolean): HTMLButtonElement {
 
   const dialog = h(
     'dialog',
-    { id: 'catalog', 'aria-label': 'module catalog' },
+    { id: 'catalog', 'aria-label': 'catalog: modules and presets' },
     h(
       'div',
       { className: 'catalog-head' },
-      h('h2', {}, 'Modules'),
+      h('h2', {}, 'Catalog'),
       h('div', { className: 'group kinds' }, ...kindButtons),
       refreshBtn,
       h('button', { type: 'button', className: 'close', 'aria-label': 'close', onClick: () => dialog.close() }, '✕'),
@@ -156,16 +159,21 @@ export function catalogButton(isBusy: () => boolean): HTMLButtonElement {
     if (working || isBusy()) return
     if (action === 'remove') {
       const lose = m.state === 'modified' || m.state === 'local' ? ' Its files, including any changes, are deleted.' : ''
-      if (!confirm(`Remove the ${m.kind} module "${m.name}"?${lose} Running instances keep running.`)) return
+      const ask =
+        m.kind === 'preset'
+          ? `Delete the preset "${m.name}"?${m.state === 'modified' ? ' Your saved changes go with it.' : ''}`
+          : `Remove the ${m.kind} module "${m.name}"?${lose} Running instances keep running.`
+      if (!confirm(ask)) return
     }
     const warning = action === 'install' ? overwrites(m) : null
     if (warning && !confirm(warning)) return
-    working = { name: m.name, action }
+    working = { key: key(m), action }
     paint()
-    let res = await patchbay.fromCatalog(action, m.name, warning !== null)
+    const what = m.kind === 'preset' ? 'preset' : 'module'
+    let res = await patchbay.fromCatalog(action, m.name, what, warning !== null)
     if (res && 'conflict' in res) {
       // It changed on disk after the list was drawn: ask now.
-      res = confirm(`${res.conflict}. Go ahead?`) ? await patchbay.fromCatalog(action, m.name, true) : null
+      res = confirm(`${res.conflict}. Go ahead?`) ? await patchbay.fromCatalog(action, m.name, what, true) : null
     }
     working = null
     if (res && 'installed' in res) {
@@ -195,7 +203,7 @@ export function catalogButton(isBusy: () => boolean): HTMLButtonElement {
   }
 
   function row(m: CatalogModule): HTMLElement {
-    const doing = working?.name === m.name ? working.action : null
+    const doing = working?.key === key(m) ? working.action : null
     const actions: HTMLElement[] = []
     const label = installLabel(m)
     if (label) {
@@ -231,6 +239,7 @@ export function catalogButton(isBusy: () => boolean): HTMLButtonElement {
       sourceText(m, listing?.url ?? ''),
       m.runnable ? '' : `native entry (${m.entry}): this engine can't run it`,
       m.depends.length ? `needs ${m.depends.join(', ')}` : '',
+      m.requires?.length ? `uses ${m.requires.map((r) => r.types.join(' or ') || r.id).join(', ')}` : '',
       m.python.length ? `pip: ${m.python.map((p) => p.split(/[<>=;! ]/)[0]).join(', ')}` : '',
       m.size ? kb(m.size) : '',
     ].filter(Boolean)
@@ -276,9 +285,11 @@ export function catalogButton(isBusy: () => boolean): HTMLButtonElement {
         ? shown.map(row)
         : [h('li', { className: 'catalog-empty' }, query ? `nothing matches “${query}”` : 'the catalog is empty')]),
     )
-    const installed = listing.modules.filter((m) => m.state !== 'available').length
+    const all = listing.modules
+    const presets = all.filter((m) => m.kind === 'preset').length
+    const installed = all.filter((m) => m.state !== 'available').length
     footer.replaceChildren(
-      `${listing.modules.length} modules · ${installed} installed · from `,
+      `${all.length - presets} modules · ${presets} presets · ${installed} installed · from `,
       h('code', { title: listing.url }, listing.url),
     )
   }

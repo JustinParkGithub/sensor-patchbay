@@ -9,7 +9,7 @@ state) and loads nothing from the internet.
 `dist/` **is committed to git**, so the normal path needs no Node at all:
 
 ```bash
-python run.py --mock --dry-run     # http://127.0.0.1:8420
+python run.py                      # http://127.0.0.1:8420
 ```
 
 To change the UI:

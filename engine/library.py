@@ -12,8 +12,8 @@ Two front-end actions sit on top of :mod:`engine.modules` and
   what it printed, so the UI can show it.
 
 A module zip holds one module folder, with its ``module.toml`` at the top, one
-folder down (``joycon/module.toml``), or under its kind
-(``sources/joycon/module.toml``). The folder name is the type; at the top level
+folder down (``hid/module.toml``), or under its kind
+(``sinks/hid/module.toml``). The folder name is the type; at the top level
 the zip's own name is. Outside ``sources/``, the manifest must say
 ``kind = "source"`` or ``"sink"``.
 """
@@ -45,7 +45,8 @@ _sync_lock = threading.Lock()
 
 
 # ------------------------------------------------------------------------ upload
-def install_upload(filename: str, data: bytes, source: str | None = None) -> dict:
+def install_upload(filename: str, data: bytes, source: str | None = None,
+                   catalog_sha256: str | None = None) -> dict:
     """Write an uploaded preset or module. A module gets an install record
     (``.install.json``, see :mod:`engine.modules`) naming *source*, by default
     ``upload:<filename>``."""
@@ -53,13 +54,15 @@ def install_upload(filename: str, data: bytes, source: str | None = None) -> dic
         raise ValueError(f"{filename}: larger than {MAX_UPLOAD >> 20} MB")
     suffix = Path(filename).suffix.lower()
     if suffix == ".json":
-        return _install_preset(filename, data)
+        return _install_preset(filename, data, source or f"upload:{Path(filename).name}",
+                               catalog_sha256)
     if suffix == ".zip":
         return _install_module(filename, data, source or f"upload:{Path(filename).name}")
     raise ValueError(f"{filename}: upload a module (.zip) or a preset (.json)")
 
 
-def _install_preset(filename: str, data: bytes) -> dict:
+def _install_preset(filename: str, data: bytes, source: str,
+                    catalog_sha256: str | None = None) -> dict:
     name = presets.check_name(Path(filename).stem)
     try:
         d = json.loads(data)
@@ -76,6 +79,7 @@ def _install_preset(filename: str, data: bytes) -> dict:
     replaced = target.exists()
     paths.PRESETS.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(d, indent=2))
+    presets.write_record(name, source, catalog_sha256)
     return {"kind": "preset", "name": name, "replaced": replaced,
             "missing": presets.missing(d)}
 

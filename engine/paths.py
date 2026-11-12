@@ -66,7 +66,7 @@ disable = []
 # Module catalog (index.json URL or local path); empty means the default on GitHub.
 # catalog = ""
 
-# Modules to add on start, e.g. autostart = ["bmi160:port=/dev/ttyACM0", "hid"]
+# Modules to add on start, e.g. autostart = ["controller", "hid"]
 autostart = []
 """
 
@@ -99,7 +99,7 @@ def ensure_layout():
 def extend_packages():
     """Let ``sources.<type>`` / ``sinks.<type>`` import from the data folder too,
     so a module uploaded there is a normal package. Its ``depends`` imports
-    (``from sources.joycon import ...``) then work as they do in the repo."""
+    (``from sources.<other> import ...``) then work as they do in the repo."""
     import sinks
     import sources
 

@@ -28,7 +28,7 @@ class SysSink:
     """Built-in sink. Each port acts on a rising edge, which the loop services
     after the sinks are driven:
 
-    - ``preset.cycle`` loads the next preset — map ``joycon/btn.home -> sys/preset.cycle``.
+    - ``preset.cycle`` loads the next preset — map ``controller/btn.guide -> sys/preset.cycle``.
     - ``panic.toggle`` flips panic, like the UI's PANIC button.
 
     Unlike every other sink it keeps receiving its inputs while panic is on —
@@ -379,6 +379,7 @@ class EngineLoop:
         p = self._preset_path(name)
         if p.exists():
             p.unlink()
+            presets.forget_record(p.stem)
             return True
         return False
 

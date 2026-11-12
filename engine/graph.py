@@ -14,7 +14,7 @@ class Connection:
 
     def __init__(self, source, sink, chain=None, enabled=True, id=None):
         self.id = id or ("c_" + uuid.uuid4().hex[:8])
-        self.source = source          # namespaced port id, e.g. "joycon/gyro.z"
+        self.source = source          # namespaced port id, e.g. "controller/gyro.z"
         self.sink = sink              # namespaced port id, e.g. "hid/mouse.dx"
         self.enabled = bool(enabled)
         self.chain = list(chain or [])  # [{"type": "...", "params": {...}}, ...]

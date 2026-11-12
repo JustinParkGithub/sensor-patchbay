@@ -8,8 +8,8 @@ This is the "sit down and get it" version. For exact contracts and protocols see
 
 It's a **patchbay for motion**. Think of an old audio patch panel: jacks on the
 left, jacks on the right, and you run a cable from one to the other. Here the
-left-hand jacks are *things that sense the world* (a Joy-Con's gyro, an
-accelerometer on an Arduino, whatever you plug in) and the right-hand jacks are
+left-hand jacks are *things that sense the world* (a game controller's gyro,
+flex sensors on an Arduino, whatever you plug in) and the right-hand jacks are
 *things that do stuff* (move the mouse, press keys, wiggle a servo, fly a drone).
 You draw a cable between them and the sensor now drives the thing — live, no
 restart.
@@ -23,13 +23,13 @@ you can copy, diff, and hand to a friend.
 
 ```
   sensor  ──►  named signals on a bus  ──►  routing graph (cables + tweaks)  ──►  output
- (source)         joycon/gyro.x                  scale · deadzone · expo               (sink)
-                  bmi160/accel.mag                threshold · debounce                  hid/mouse.dx
-                                                                                        gpio/pwm.0
+ (source)         controller/gyro.y              scale · deadzone · expo               (sink)
+                  controller/accel.mag           threshold · debounce                  hid/mouse.dx
+                                                                                        hid/key.space
 ```
 
-1. **Sources** produce named numbers every tick: `joycon/gyro.x`,
-   `bmi160/accel.mag`, and so on. Everything is just a number.
+1. **Sources** produce named numbers every tick: `controller/gyro.y`,
+   `bend4/bend.0`, and so on. Everything is just a number.
 2. The **bus** carries those numbers. Names are `who/what` — the instance and the
    port.
 3. The **routing graph** is your cables. Each cable pulls one source number,
@@ -45,7 +45,7 @@ Python relaxed.
   click a sink jack, you've got a cable. Click the cable to shape it. Great when
   you have a screen.
 - **The console (CLI).** `python run.py --no-ui --cli` gives you a `patchbay>`
-  prompt. `add sink gpio`, `connect bmi160/tilt.roll gpio/pwm.0`, `save myrig`.
+  prompt. `add sink hid`, `connect controller/tilt.roll hid/key.d`, `save myrig`.
   Great when the whole thing is running headless on a Pi and you're on SSH.
 
 They're two windows onto the *same* running engine. Anything you can click you can
@@ -60,17 +60,20 @@ the running app shows them as a menu:
 - In the GUI there's an **"add source" / "add sink" dropdown** at the bottom of
   each column. Pick one, fill in its options (serial port, pins, …), hit add. It
   appears with its jacks, ready to patch. Each module has an ✕ to remove it.
-- In the console it's `plugins` to see the menu and `add source bmi160
-  port=/dev/ttyACM0` to add one.
+- In the console it's `plugins` to see the menu and `add source controller
+  name=dualsense` to add one.
 
-Each plugin's folder declares the libraries it needs, and the app installs them
-on start. A plugin that still can't run, for example because there's no Joy-Con
-paired or it's the Pi-only GPIO sink on a laptop, shows up in the menu greyed
-out, with a note explaining why, instead of silently vanishing.
+None of them ship with the app. They come from a **catalog** (a separate repo,
+[sensor-patchbay-modules](https://github.com/JustinParkGithub/sensor-patchbay-modules)),
+and the **Browse…** button installs the ones you want, along with ready-made
+presets. Each plugin's folder declares the libraries it needs, and the app
+installs them. A plugin that still can't run, for example because a library is
+missing on this machine, shows up in the menu greyed out, with a note explaining
+why, instead of silently vanishing.
 
 ## What gets installed (declarative, NixOS-style)
 
-Every source and sink is a folder like `sources/bmi160/`. Next to its code is a
+Every source and sink is a folder like `sources/bend4/`. Next to its code is a
 `module.toml` that lists the Python packages it needs (`python = ["pyserial"]`),
 any files to download (the camera tracker's model), and setup steps pip can't do
 for you (pairing, permissions). The folders on disk *are* the configuration.
@@ -80,7 +83,7 @@ own by default.
 On every start the app compares the installed packages with that declaration and
 makes them match **exactly**. Missing packages are installed, and packages no
 enabled module needs are removed, so nothing is left over. The exact versions are
-pinned in a committed `patchbay.lock`, so every machine gets the same set. When
+pinned in `patchbay.lock`, so a rebuild gets the same set. When
 nothing changed, this check is instant and needs no internet. To strip the camera
 tracker's large libraries from a machine, add `disable = ["cv"]` and restart.
 
@@ -99,12 +102,10 @@ Pi, or read a new sensor?
    `python = ["pymavlink"]`.
 4. Start the app. Its packages get installed, and it appears in the dropdown.
 
-There's a complete, working example in
-[`sinks/gpio/`](https://github.com/JustinParkGithub/sensor-patchbay-modules/tree/main/sinks/gpio): it drives
-Raspberry Pi GPIO pins — PWM channels for servos or a drone's ESCs, digital pins
-for relays — and, cleverly, falls back to just *printing* what it would do when
-you're building the patch on a laptop with no Pi attached. Copy it as your
-starting point.
+For complete, working examples, see the catalog's
+[`sinks/hid/`](https://github.com/JustinParkGithub/sensor-patchbay-modules/tree/main/sinks/hid) (mouse + keyboard) and
+[`sources/controller/`](https://github.com/JustinParkGithub/sensor-patchbay-modules/tree/main/sources/controller). Its README lists everything a
+source or sink must do. Publish yours by opening a pull request there.
 
 Keep your heavy `import` inside `__init__`/`start` (not at the top of the file) and
 add an `available()` method. Then your plugin lists itself politely even on a

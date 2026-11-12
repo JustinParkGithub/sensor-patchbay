@@ -13,7 +13,7 @@
  */
 
 import { api, ApiError, errorMessage } from '../lib/api'
-import type { ConnectionPatch } from '../lib/api'
+import type { CatalogKind, ConnectionPatch } from '../lib/api'
 import { buildPortIndex, compatibleSinks, lastConnectionBetween, wiredPorts } from '../lib/ports'
 import type { PortEntry } from '../lib/ports'
 import { EMPTY_CATALOG, EMPTY_GRAPH } from '../types'
@@ -179,10 +179,12 @@ export class Patchbay {
   async fromCatalog(
     action: 'install' | 'remove',
     name: string,
+    kind: CatalogKind,
     force = false,
   ): Promise<Awaited<ReturnType<typeof api.catalogInstall | typeof api.catalogRemove>> | { conflict: string } | null> {
     try {
-      const res = action === 'install' ? await api.catalogInstall(name, force) : await api.catalogRemove(name)
+      const res =
+        action === 'install' ? await api.catalogInstall(name, kind, force) : await api.catalogRemove(name, kind)
       this.set({ plugins: res.plugins, presets: res.presets, presetInfo: res.preset_info })
       return res
     } catch (e) {

@@ -1,13 +1,13 @@
 """Preset files: their names, and the modules they need.
 
-A preset addresses ports by bus namespace (``joycon/gyro.x``, ``hid/mouse.dx``),
-which is an *instance* id, not a plugin type: the real Joy-Con and the mock both
-present ``joycon``. So a preset records which types can fill each namespace it
+A preset addresses ports by bus namespace (``controller/gyro.y``, ``hid/mouse.dx``),
+which is an *instance* id, not a plugin type: a real device and a stand-in for it
+can both present the same namespace. So a preset records which types can fill each namespace it
 uses, in a ``requires`` list written on every save::
 
     "requires": [
-      {"id": "joycon", "kind": "source", "types": ["joycon", "mock"]},
-      {"id": "hid",    "kind": "sink",   "types": ["dryrun", "hid"]}
+      {"id": "controller", "kind": "source", "types": ["controller", "controller_sim"]},
+      {"id": "hid",        "kind": "sink",   "types": ["hid"]}
     ]
 
 ``types`` is the union of the type of whatever ran under that id when the preset
@@ -19,13 +19,65 @@ against the namespaces its connections use instead.
 
 from __future__ import annotations
 
+import datetime
+import hashlib
+import json
 import re
 
-from . import registry
+from . import paths, registry
 
 # Also a file name: no separators, no leading dot.
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}")
 BUILTIN = {"sys"}  # namespaces the engine provides itself
+
+
+# ------------------------------------------------------------- install records
+# A preset is one file, so its install record can't sit inside it the way a
+# module's .install.json does: every preset's record lives in this one file in
+# the presets folder, {name: {source, digest, catalog_sha256, installed}}.
+# `digest` is the file as written; `catalog_sha256` the catalog's copy, so an
+# update upstream and an edit here (Save in the UI) can be told apart.
+RECORDS = ".install-records"
+
+
+def _records_path():
+    return paths.PRESETS / RECORDS
+
+
+def read_records() -> dict:
+    try:
+        d = json.loads(_records_path().read_text())
+    except (OSError, ValueError):
+        return {}
+    return d if isinstance(d, dict) else {}
+
+
+def _write_records(records: dict):
+    paths.PRESETS.mkdir(parents=True, exist_ok=True)
+    _records_path().write_text(json.dumps(records, indent=2, sort_keys=True) + "\n")
+
+
+def file_digest(name: str) -> str | None:
+    try:
+        return hashlib.sha256((paths.PRESETS / f"{name}.json").read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def write_record(name: str, source: str, catalog_sha256: str | None = None) -> dict:
+    records = read_records()
+    records[name] = {"source": source, "digest": file_digest(name),
+                     "catalog_sha256": catalog_sha256,
+                     "installed": datetime.datetime.now(datetime.timezone.utc)
+                     .isoformat(timespec="seconds")}
+    _write_records(records)
+    return records[name]
+
+
+def forget_record(name: str):
+    records = read_records()
+    if records.pop(name, None) is not None:
+        _write_records(records)
 
 
 def check_name(name) -> str:

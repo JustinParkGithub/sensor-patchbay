@@ -7,18 +7,18 @@ Every plugin has a **type** and produces **instances**, and they are not the
 same thing:
 
 * ``type``  — the registry key, i.e. the entry you pick from the dropdown in the
-  GUI or name on the command line (``joycon``, ``mock``, ``bmi160``, ``hid``,
-  ``dryrun``, ...). It is one-class-per-type.
+  GUI or name on the command line (``controller``, ``bend4``, ``cv``, ``hid``,
+  ...). It is one-class-per-type.
 * ``id``    — the *default instance id*, which is the namespace every one of the
-  plugin's ports is exposed under on the bus (``joycon/gyro.z``, ``hid/mouse.dx``).
+  plugin's ports is exposed under on the bus (``controller/gyro.z``, ``hid/mouse.dx``).
   Presets reference ports by this namespace, so it must stay stable.
 
-Keeping them separate is what lets a *stand-in* like the synthetic ``mock`` source
-(``type="mock"``) share the real Joy-Con's bus namespace (``id="joycon"``): the
-two are different registry entries but present the same ports, so a preset built
+Keeping them separate is what lets a *stand-in* (say a simulator,
+``type="controller_sim"``) share the real controller's bus namespace
+(``id="controller"``): the two are different registry entries but present the same ports, so a preset built
 against one runs unchanged on the other. It is also what lets you run two of the
 same board at once — a second instance is just given a suffixed id
-(``bmi160``, ``bmi160-2``) by :class:`~engine.loop.EngineLoop`.
+(``controller``, ``controller-2``) by :class:`~engine.loop.EngineLoop`.
 
 Discovery
 ---------
@@ -35,7 +35,7 @@ gone or disabled leave the menus. Instances already running keep running.
 Availability
 ------------
 A plugin whose Python module imports fine can still be unrunnable because an
-*optional* dependency (``pynput``, ``pyjoycon``, ``pyserial``, ``RPi.GPIO``) is
+*optional* dependency (``pynput``, ``sdl2``, ``pyserial``) is
 missing. Plugins keep their heavy imports lazy (inside ``__init__``/``start``) so
 they always register, and advertise a classmethod :meth:`available` → ``(ok,
 reason)`` so the GUI and CLI can list them but grey out the ones that can't run

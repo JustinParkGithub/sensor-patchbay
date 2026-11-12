@@ -47,7 +47,7 @@ from engine import paths
 TITLE = "sensor · patchbay"
 # run.py flags that mean "no window": they either exit or own the terminal.
 CONSOLE_FLAGS = ("cli", "no_ui", "sync", "upgrade", "list_sources", "list_sinks",
-                 "list_ports", "selftest")
+                 "selftest", "catalog")
 APP_FLAGS = ("--browser", "--no-tray")
 
 
