@@ -1,7 +1,0 @@
-# Virtual mouse + keyboard via pynput.
-kind = "sink"
-python = ["pynput>=1.7.6"]
-system = [
-  "macOS: grant Accessibility to your terminal/IDE (System Settings > Privacy & Security)",
-  "Linux: an X11 session, or uinput access for Wayland/headless",
-]

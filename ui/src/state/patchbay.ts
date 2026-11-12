@@ -12,7 +12,7 @@
  * and compare fields with `!==` to decide what to repaint.
  */
 
-import { api, errorMessage } from '../lib/api'
+import { api, ApiError, errorMessage } from '../lib/api'
 import type { ConnectionPatch } from '../lib/api'
 import { buildPortIndex, compatibleSinks, lastConnectionBetween, wiredPorts } from '../lib/ports'
 import type { PortEntry } from '../lib/ports'
@@ -166,6 +166,28 @@ export class Patchbay {
       this.set({ plugins: res.plugins, presets: res.presets, presetInfo: res.preset_info })
       return res.report
     } catch (e) {
+      toastError(e)
+      return null
+    }
+  }
+
+  /**
+   * Install a module from the online catalog (with whatever it depends on), or
+   * delete an installed one. The engine syncs either way; resolves with its
+   * reply so the caller can say what happened, or null if it refused.
+   */
+  async fromCatalog(
+    action: 'install' | 'remove',
+    name: string,
+    force = false,
+  ): Promise<Awaited<ReturnType<typeof api.catalogInstall | typeof api.catalogRemove>> | { conflict: string } | null> {
+    try {
+      const res = action === 'install' ? await api.catalogInstall(name, force) : await api.catalogRemove(name)
+      this.set({ plugins: res.plugins, presets: res.presets, presetInfo: res.preset_info })
+      return res
+    } catch (e) {
+      // Installing over a modified or hand-placed copy: the caller asks first.
+      if (e instanceof ApiError && e.status === 409) return { conflict: e.message }
       toastError(e)
       return null
     }

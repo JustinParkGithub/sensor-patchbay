@@ -1,4 +1,5 @@
 import { h } from '../lib/dom'
+import { catalogButton } from './catalogPanel'
 import { patchbay } from '../state/patchbay'
 import { toast } from '../state/toast'
 import type { SyncReport } from '../types'
@@ -42,7 +43,8 @@ function summarize(report: SyncReport): { text: string; bad: boolean } {
 }
 
 /**
- * Upload (a module `.zip` or a preset `.json`, several at once, or dropped
+ * Browse (the online module catalog: search, install, update, remove), Upload
+ * (a module `.zip` or a preset `.json`, several at once, or dropped
  * anywhere on the window) and Sync, which re-reads every module and preset on
  * disk — for files added by hand to the data folder, or a module edited in place.
  */
@@ -132,5 +134,5 @@ export function libraryBar(): HTMLElement {
     void upload([...(e.dataTransfer?.files ?? [])])
   })
 
-  return h('div', { className: 'group library' }, uploadBtn, syncBtn, picker)
+  return h('div', { className: 'group library' }, catalogButton(() => busy), uploadBtn, syncBtn, picker)
 }

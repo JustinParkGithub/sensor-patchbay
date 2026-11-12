@@ -1,3 +1,0 @@
-# Raspberry Pi GPIO (PWM + digital out). Logs instead of driving pins elsewhere.
-kind = "sink"
-python = ["RPi.GPIO>=0.7; sys_platform == 'linux' and (platform_machine == 'aarch64' or platform_machine == 'armv7l')"]

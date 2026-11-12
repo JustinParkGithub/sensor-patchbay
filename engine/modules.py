@@ -17,6 +17,10 @@ code (``__init__.py``) and a ``module.toml`` manifest::
 
     # module.toml
     kind    = "source"                  # optional in-repo (the parent folder decides)
+    description = "Arduino Nano + BMI160 IMU over USB serial"   # shown in the catalog
+    version = "1.2.0"                   # dotted numbers; the catalog compares them
+    entry   = "__init__.py"             # what runs: a .py file (default), or a native
+                                        # program for engines that run plugins out of process
     python  = ["pyserial>=3.5"]         # pip requirement strings (PEP 508 markers ok)
     depends = []                        # other modules whose *code* this one imports
     system  = ["Linux: user in 'dialout'"]   # things pip can't manage; printed on sync
@@ -27,6 +31,15 @@ code (``__init__.py``) and a ``module.toml`` manifest::
 
 The manifest is read without importing the module, so an extension's
 dependencies can be resolved without running its code.
+
+Install records
+---------------
+Every folder found is a module, however it got there: copied by hand, from
+``--ext``, uploaded, or installed from the catalog. Uploads and catalog
+installs also leave a ``.install.json`` in the folder saying where it came
+from, its version, and the digest of its files at the time
+(:func:`folder_digest`). Comparing that digest with the files now tells
+"installed as-is" from "modified since"; a folder with no record is local.
 
 Sync
 ----
@@ -59,6 +72,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import json
 import os
 import platform
 import shutil
@@ -78,7 +92,11 @@ KINDS = paths.KINDS
 MIN_PYTHON = "3.11"          # tomllib; the lock is resolved for this and newer
 
 _DIGEST_PREFIX = "# patchbay-inputs: "
-_MANIFEST_KEYS = {"kind", "python", "depends", "system", "assets"}
+_MANIFEST_KEYS = {"kind", "description", "version", "entry", "python", "depends",
+                  "system", "assets"}
+DEFAULT_ENTRY = "__init__.py"
+RECORD = ".install.json"          # see "Install records" above
+_DIGEST_SKIP = {"__pycache__", ".DS_Store"}
 
 
 @dataclass
@@ -91,6 +109,95 @@ class Module:
     system: list[str] = field(default_factory=list)
     assets: list[dict] = field(default_factory=list)
     external: bool = False         # loaded from an --ext / PATCHBAY_EXT_PATH dir
+    description: str = ""
+    version: str = ""
+    entry: str = DEFAULT_ENTRY     # relative to the folder
+
+    @property
+    def python_entry(self) -> bool:
+        """Whether this engine can run it (the Python engine imports .py entries)."""
+        return self.entry.endswith(".py")
+
+
+# ------------------------------------------------------- manifest field helpers
+def check_entry(entry) -> str:
+    """A manifest's ``entry``: a relative path inside the module folder."""
+    from pathlib import PurePosixPath
+    if not isinstance(entry, str) or not entry.strip():
+        raise ValueError("entry must be a non-empty path")
+    p = PurePosixPath(entry.strip().replace("\\", "/"))
+    if p.is_absolute() or ".." in p.parts or (p.parts and ":" in p.parts[0]):
+        raise ValueError(f"entry {entry!r} must be a path inside the module folder")
+    return str(p)
+
+
+def parse_version(v) -> tuple[int, ...] | None:
+    """``"1.2.10"`` -> ``(1, 2, 10)``; None if it isn't dotted numbers. A leading
+    ``v`` and a ``-suffix`` are allowed and ignored."""
+    s = str(v or "").strip().lstrip("vV").split("-", 1)[0].split("+", 1)[0]
+    try:
+        parts = tuple(int(x) for x in s.split("."))
+    except ValueError:
+        return None
+    return parts if parts else None
+
+
+def compare_versions(a, b) -> int | None:
+    """-1, 0 or 1 like ``a`` vs ``b``; None when either isn't a version."""
+    pa, pb = parse_version(a), parse_version(b)
+    if pa is None or pb is None:
+        return None
+    n = max(len(pa), len(pb))
+    pa, pb = pa + (0,) * (n - len(pa)), pb + (0,) * (n - len(pb))
+    return (pa > pb) - (pa < pb)
+
+
+# ------------------------------------------------------------ digests + records
+def module_digest(files: dict[str, str]) -> str:
+    """sha256 over sorted ``relpath\\0sha256\\n`` lines. The catalog's index uses the
+    same formula (sensor-patchbay-modules: tools/build_index.py)."""
+    h = hashlib.sha256()
+    for rel in sorted(files):
+        h.update(f"{rel}\0{files[rel]}\n".encode())
+    return h.hexdigest()
+
+
+def folder_files(folder: Path, assets=()) -> dict[str, str]:
+    """``{relpath: sha256}`` of the files that make up a module: no dotfiles (so
+    not the install record), ``__pycache__``, ``*.pyc``/``*.part``, or downloaded
+    ``assets``."""
+    skip = {a.get("file") if isinstance(a, dict) else a for a in assets}
+    out = {}
+    for p in sorted(folder.rglob("*")):
+        inner = p.relative_to(folder)
+        rel = inner.as_posix()
+        if (not p.is_file() or rel in skip or p.suffix in (".pyc", ".part")
+                or any(part in _DIGEST_SKIP or part.startswith(".") for part in inner.parts)):
+            continue
+        out[rel] = hashlib.sha256(p.read_bytes()).hexdigest()
+    return out
+
+
+def folder_digest(folder: Path, assets=()) -> str:
+    return module_digest(folder_files(folder, assets))
+
+
+def read_record(folder: Path) -> dict | None:
+    try:
+        rec = json.loads((folder / RECORD).read_text())
+    except (OSError, ValueError):
+        return None
+    return rec if isinstance(rec, dict) and rec.get("digest") else None
+
+
+def write_record(folder: Path, source: str, version: str, assets=(), **extra) -> dict:
+    import datetime
+    rec = {"source": source, "version": version,
+           "digest": folder_digest(folder, assets),
+           "installed": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+           **extra}
+    (folder / RECORD).write_text(json.dumps(rec, indent=2) + "\n")
+    return rec
 
 
 _captured: list[list[str]] = []
@@ -128,10 +235,9 @@ def _shown(path: Path) -> Path:
 # ----------------------------------------------------------------------- finding
 def _read_module(folder: Path, kind: str | None, external: bool) -> Module | None:
     manifest = folder / "module.toml"
-    if not (folder / "__init__.py").is_file():
-        return None
     if not manifest.is_file():
-        _warn(f"{_shown(folder)}: no module.toml, skipped")
+        if (folder / DEFAULT_ENTRY).is_file():
+            _warn(f"{_shown(folder)}: no module.toml, skipped")
         return None
     try:
         data = tomllib.loads(manifest.read_text())
@@ -147,7 +253,18 @@ def _read_module(folder: Path, kind: str | None, external: bool) -> Module | Non
     if kind not in KINDS.values():
         _warn(f"{manifest}: needs kind = \"source\" or \"sink\"; skipped")
         return None
+    try:
+        entry = check_entry(data.get("entry", DEFAULT_ENTRY))
+    except ValueError as e:
+        _warn(f"{manifest}: {e}; skipped")
+        return None
+    if not (folder / entry).is_file():
+        _warn(f"{_shown(folder)}: entry {entry} not found; skipped")
+        return None
     return Module(folder.name, kind, folder,
+                  description=str(data.get("description", "")),
+                  version=str(data.get("version", "")),
+                  entry=entry,
                   python=list(data.get("python", [])),
                   depends=list(data.get("depends", [])),
                   system=list(data.get("system", [])),

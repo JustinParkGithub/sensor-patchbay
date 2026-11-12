@@ -226,7 +226,10 @@ environment, and a sync makes the installed packages match them **exactly**.
 
   | key | type | meaning |
   |---|---|---|
-  | `kind` | `"source"`\|`"sink"` | implied by `sources/`/`sinks/`; **required** in extension dirs and uploaded zips (every in-repo manifest sets it) |
+  | `kind` | `"source"`\|`"sink"` | implied by `sources/`/`sinks/`; **required** in extension dirs and uploaded zips (every catalog manifest sets it) |
+  | `description` | string | one line shown in the module catalog (optional) |
+  | `version` | string | dotted numbers (`1.2.0`; a leading `v` and a `-suffix` are ignored when comparing); required by the catalog repo, optional elsewhere |
+  | `entry` | path | the file that runs, relative to the folder; default `__init__.py`. A `.py` entry is imported as the package `<kind>s.<type>`. Any other entry is a native program: the module is found and listed, but the Python engine doesn't import it |
   | `python` | `[str]` | PEP 508 requirement strings (markers allowed) |
   | `depends` | `[str]` | module types whose *code* this one imports |
   | `system` | `[str]` | setup pip can't perform; printed, never executed |
@@ -267,6 +270,51 @@ environment, and a sync makes the installed packages match them **exactly**.
   packages are missing then show as unavailable (§5.3).
 
 ---
+
+### 5.7 Module catalog (`engine.catalog`)
+
+- No module ships with the engine. Modules are published by a **catalog**: a
+  static tree with `index.json` at its root and module folders at
+  `sources/<type>/…`, `sinks/<type>/…` (the `sensor-patchbay-modules` repo).
+- `index.json` is `{"format": 1, "modules": [Entry…]}`. An Entry has `name`,
+  `kind`, `description`, `version`, `entry`, `depends`, `python`, `system`,
+  `digest`, and `files`: `[{path, sha256, size}]`. Each `path` is relative to
+  the index URL and must lie under `<kind>s/<name>/`, and `entry` must be one of
+  them; anything else rejects the whole index. A client refuses a `format`
+  newer than it knows. (`version` and `entry` were added without a format
+  bump: an index without them reads as `""` and `__init__.py`.)
+- `digest` = sha256 over the sorted lines `relpath "\0" sha256 "\n"` of the
+  module's files (relpath inside the module folder), excluding dotfiles,
+  `__pycache__`, `*.pyc`, `*.part` and declared `assets`.
+- **Install record.** An upload or catalog install writes `.install.json` into
+  the module folder: `{source, version, digest, installed}`. `source` is the
+  index URL or `upload:<filename>`; `digest` is the folder's digest just after
+  writing. A record inside an uploaded zip is discarded and rewritten.
+- **States.** Every module found on disk (§5.6) is listed. With *cur* = its
+  digest now, *rec* = its record, *cat* = the catalog's entry:
+  - no *rec*: `installed` if *cat* exists and `cur == cat.digest`, else `local`;
+  - `cur != rec.digest`: `modified`;
+  - *cat* exists and `cat.digest != cur`: `update`, with `change` = `upgrade`,
+    `downgrade` or `changed` by comparing `cat.version` with the installed
+    `version` (`changed` when equal or not comparable);
+  - otherwise `installed`.
+  A module the catalog lacks is listed too, with `version` null.
+- Location, first match wins: `$PATCHBAY_CATALOG`, `patchbay.toml` `catalog`,
+  the built-in default. Plain paths and directories are allowed.
+- **Install** (`name`): fetch the index, compute `name` plus the transitive
+  closure of `depends` (cycles and unknown names are errors). Download every
+  module not yet installed (plus `name` itself, always), check every file's
+  sha256, then install it through the same path as an uploaded zip (§5.6),
+  into the data folder, with the index URL as the record's `source`. Then
+  sync. If `name` is installed and `modified` or `local`, refuse (a conflict)
+  unless `force`.
+- **Remove** (`name`): delete the folder, but only if it is in the data folder
+  (not an extension dir). Report the installed modules that depend on it.
+  Then sync.
+- HTTP: `GET /api/catalog[?refresh=1]`, `POST /api/catalog/install {name, force?}`,
+  `POST /api/catalog/remove {name}`. Both POSTs answer like `POST /api/sync`,
+  plus `installed` / `removed`. A conflict is `409 {"error", "conflict": true}`.
+  Same origin/host checks as every POST.
 
 ## 6. Source contract (`sources.base.Source`)
 

@@ -45,14 +45,17 @@ _sync_lock = threading.Lock()
 
 
 # ------------------------------------------------------------------------ upload
-def install_upload(filename: str, data: bytes) -> dict:
+def install_upload(filename: str, data: bytes, source: str | None = None) -> dict:
+    """Write an uploaded preset or module. A module gets an install record
+    (``.install.json``, see :mod:`engine.modules`) naming *source*, by default
+    ``upload:<filename>``."""
     if len(data) > MAX_UPLOAD:
         raise ValueError(f"{filename}: larger than {MAX_UPLOAD >> 20} MB")
     suffix = Path(filename).suffix.lower()
     if suffix == ".json":
         return _install_preset(filename, data)
     if suffix == ".zip":
-        return _install_module(filename, data)
+        return _install_module(filename, data, source or f"upload:{Path(filename).name}")
     raise ValueError(f"{filename}: upload a module (.zip) or a preset (.json)")
 
 
@@ -77,7 +80,7 @@ def _install_preset(filename: str, data: bytes) -> dict:
             "missing": presets.missing(d)}
 
 
-def _install_module(filename: str, data: bytes) -> dict:
+def _install_module(filename: str, data: bytes, source: str) -> dict:
     try:
         zf = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile:
@@ -119,12 +122,18 @@ def _install_module(filename: str, data: bytes) -> dict:
         rel = PurePosixPath(*rel.parts[len(top.parts):])
         if rel.is_absolute() or ".." in rel.parts or ":" in rel.parts[0]:
             raise ValueError(f"{filename}: unsafe path {info.filename!r}")
+        if rel == PurePosixPath(modules.RECORD):
+            continue                  # a zipped installed folder: write a fresh record
         total += info.file_size
         if total > MAX_UNPACKED:
             raise ValueError(f"{filename}: unpacks to more than {MAX_UNPACKED >> 20} MB")
         files.append((info, rel))
-    if not any(rel == PurePosixPath("__init__.py") for _, rel in files):
-        raise ValueError(f"{filename}: no __init__.py beside module.toml")
+    try:
+        entry = modules.check_entry(manifest.get("entry", modules.DEFAULT_ENTRY))
+    except ValueError as e:
+        raise ValueError(f"{filename}: module.toml: {e}") from None
+    if not any(rel == PurePosixPath(entry) for _, rel in files):
+        raise ValueError(f"{filename}: no {entry} (the module's entry) beside module.toml")
 
     dest_root = paths.upload_dir(kind)
     dest_root.mkdir(parents=True, exist_ok=True)
@@ -138,13 +147,15 @@ def _install_module(filename: str, data: bytes) -> dict:
         out.parent.mkdir(parents=True, exist_ok=True)
         with zf.open(info) as src, out.open("wb") as dst:
             shutil.copyfileobj(src, dst)
+    version = str(manifest.get("version", ""))
+    record = modules.write_record(staging, source, version, manifest.get("assets", []))
     replaced = dest.exists()
     if replaced:
         dest.rename(old)
     staging.rename(dest)
     shutil.rmtree(old, ignore_errors=True)
     return {"kind": "module", "name": name, "module_kind": kind, "replaced": replaced,
-            "path": str(dest)}
+            "path": str(dest), "version": version, "digest": record["digest"]}
 
 
 # -------------------------------------------------------------------------- sync

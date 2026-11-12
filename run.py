@@ -12,7 +12,9 @@ so a headless board can come up ready; nothing here can't also be done live.
     python run.py --sink hid      # pre-load the real mouse + keyboard sink
     python run.py --preset mouse  # load a routing preset on start
     python run.py --list-ports
-    python run.py --selftest      # headless: tick mock->dry-run for 2s and exit
+    python run.py --selftest      # headless: tick a built-in test source -> sink for 2s, exit
+    python run.py --catalog       # list the online module catalog
+    python run.py --install mock --install dryrun   # download modules from the catalog first
 
     python run.py --source bmi160:port=/dev/ttyUSB0    # pre-load a plugin source
     python run.py --sink hid --source mock             # both, at once
@@ -40,6 +42,7 @@ from __future__ import annotations
 
 import _thread
 import argparse
+import signal
 import sys
 import threading
 import time
@@ -47,7 +50,7 @@ import time
 if sys.version_info < (3, 11):
     sys.exit("sensor-patchbay needs Python 3.11+ (found %d.%d)" % sys.version_info[:2])
 
-from engine import library, modules, paths
+from engine import catalog, library, modules, paths
 from engine.graph import Graph
 from engine.loop import EngineLoop
 from engine.registry import (SINKS, SOURCES, build, describe,
@@ -94,26 +97,65 @@ def load_graph(name: str) -> Graph:
 def _need_standins() -> bool:
     missing = [n for n, reg in (("mock", SOURCES), ("dryrun", SINKS)) if n not in reg]
     if missing:
-        print(f"needs the {' and '.join(missing)} module(s); install them first "
-              "(upload in the UI, or `install` in the --cli console)")
+        names = " ".join(f"--install {n}" for n in missing)
+        print(f"needs the {' and '.join(missing)} module(s), which aren't installed. "
+              f"Get them from the catalog: python run.py {names}  (or `install <name>` in "
+              "the --cli console, or Browse modules in the UI)")
     return not missing
 
 
 def selftest():
-    if not _need_standins():
-        sys.exit(1)
-    _, mock = build(SOURCES, "mock")
-    _, null = build(SINKS, "dryrun")
-    eng = EngineLoop({"joycon": mock}, {"hid": null}, load_graph("mouse"), PRESETS, rate=120)
+    """Tick the engine for 2 s with a built-in oscillator source and a recording
+    sink. Needs no modules, so it checks the core on its own (CI runs it)."""
+    import math
+
+    from engine.signals import ModuleSpec, PortSpec
+
+    class Osc:
+        id = "osc"
+
+        def module(self):
+            return ModuleSpec("osc", "selftest oscillator", "source", [PortSpec("sine")])
+
+        def start(self): pass
+        def stop(self): pass
+
+        def read(self):
+            return {"sine": math.sin(time.perf_counter())}
+
+    class Recorder:
+        id = "rec"
+        accepts_any = False
+
+        def __init__(self):
+            self.seen = []
+
+        def module(self):
+            return ModuleSpec("rec", "selftest recorder", "sink", [PortSpec("in")])
+
+        def start(self): pass
+        def stop(self): pass
+        def release_all(self): pass
+
+        def apply(self, values, dt):
+            if "in" in values:
+                self.seen.append(values["in"])
+
+    rec = Recorder()
+    graph = Graph.from_dict({"name": "selftest", "connections": [
+        {"source": "osc/sine", "sink": "rec/in",
+         "chain": [{"type": "scale", "params": {"factor": 2.0}}, {"type": "clamp", "params": {"lo": -1.0, "hi": 1.0}}]}]})
+    eng = EngineLoop({"osc": Osc()}, {"rec": rec}, graph, PRESETS, rate=120)
     eng.start()
     time.sleep(2.0)
     snap = eng.snapshot()
     eng.stop()
-    assert snap["ports"], "no source ports in snapshot"
-    assert "joycon/gyro.z" in snap["ports"], "expected joycon/gyro.z"
+    assert "osc/sine" in snap["ports"], "expected osc/sine in snapshot"
     assert snap["rate"] == 120
-    print(f"[selftest] OK  ({len(snap['ports'])} ports, "
-          f"{len(snap['connections'])} connections, preset={snap['preset']})")
+    assert len(rec.seen) > 100, f"sink only ticked {len(rec.seen)} times in 2 s"
+    assert all(-1.0 <= v <= 1.0 for v in rec.seen), "clamp didn't hold"
+    print(f"[selftest] OK  ({len(rec.seen)} ticks, {len(snap['ports'])} ports, "
+          f"{len(snap['connections'])} connections)")
 
 
 def list_ports():
@@ -165,6 +207,13 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--no-ui", action="store_true",
                     help="don't start the web server (headless / appliance)")
     ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--catalog", action="store_true",
+                    help="list the online module catalog and exit")
+    ap.add_argument("--install", action="append", default=[], metavar="NAME",
+                    help="download a module (and its depends) from the catalog before "
+                         "starting (repeatable); see --catalog")
+    ap.add_argument("--force", action="store_true",
+                    help="with --install: overwrite a modified or hand-placed copy")
     return ap
 
 
@@ -174,6 +223,24 @@ def prepare(args) -> bool:
     paths.ensure_layout()
     library.EXTRA_DIRS[:] = args.ext
     library.ENV_SYNC = not args.no_sync
+    if args.catalog:
+        listing = catalog.listing(refresh=True)
+        for m in listing["modules"]:
+            ver = m["installed_version"] or m["version"] or ""
+            if m["state"] == "update":
+                ver = f"{m['installed_version'] or '?'} → {m['version'] or '?'}"
+            print(f"  {m['state']:9} {m['kind']:6} {m['name']:10} {ver:16} {m['description']}")
+        print(f"\n({listing['url']})")
+        return True
+    for name in args.install:
+        try:
+            for res in catalog.install(name, force=args.force):
+                print(f"[catalog] {'updated' if res['replaced'] else 'installed'} "
+                      f"{res['module_kind']} {res['name']}")
+        except catalog.Conflict as e:
+            print(f"[catalog] {e} (add --force to go ahead)")
+        except catalog.CatalogError as e:
+            print(f"[catalog] {name}: {e}")
     # Make the environment match the declared modules, then import the enabled ones.
     enabled = modules.ensure(args.ext, sync=not args.no_sync,
                              upgrade=args.upgrade, verbose=args.sync)
@@ -217,6 +284,11 @@ def start_engine(args) -> EngineLoop:
 
 
 def main(argv=None):
+    # Started in the background (`python run.py &`, some launchers), SIGINT
+    # arrives ignored. Ctrl+C couldn't stop us then, and neither could the UI's
+    # Quit, which raises it with _thread.interrupt_main (a no-op on an ignored
+    # signal). Take it back.
+    signal.signal(signal.SIGINT, signal.default_int_handler)
     args = build_parser().parse_args(argv)
     if prepare(args):
         return

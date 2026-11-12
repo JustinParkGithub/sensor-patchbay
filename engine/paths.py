@@ -63,6 +63,9 @@ python = []
 # Module types to leave out entirely, e.g. disable = ["cv"]
 disable = []
 
+# Module catalog (index.json URL or local path); empty means the default on GitHub.
+# catalog = ""
+
 # Modules to add on start, e.g. autostart = ["bmi160:port=/dev/ttyACM0", "hid"]
 autostart = []
 """

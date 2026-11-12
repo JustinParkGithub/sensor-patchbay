@@ -25,7 +25,9 @@ Every source and sink is a **plugin** with a `type` (the menu / CLI name) and an
 `id` (the bus namespace its ports live under). They're chosen at runtime — a
 dropdown in the GUI, `add source|sink` in the console, or `--source`/`--sink` on
 the command line — and a new one is a single folder dropped in `sources/` or
-`sinks/`, no edits to `run.py`, the engine, or the UI. Each module declares the
+`sinks/`, no edits to `run.py`, the engine, or the UI. None ship with the engine:
+they live in the [module catalog](https://github.com/JustinParkGithub/sensor-patchbay-modules) and you install the ones you
+want from the GUI's **Browse…** panel (see **Module catalog**). Each module declares the
 Python packages it needs, and the environment is kept to exactly that set (see
 **Modules & dependencies**). See **Choosing sources & sinks** and
 **Extending it**, and the deeper [`docs/`](docs) (an informal
@@ -39,8 +41,8 @@ There are two ways to run it, and both include the command-line console:
 
 | | what you get | modules & presets |
 |---|---|---|
-| **Desktop app** | one download, no Python needed: a native window plus a tray icon | none bundled; you upload the ones you want |
-| **From source** | `python run.py` in a checkout; the patch panel in your browser | every folder in `sources/`, `sinks/`, `presets/` |
+| **Desktop app** | one download, no Python needed: a native window plus a tray icon | none bundled; install from the catalog |
+| **From source** | `python run.py` in a checkout; the patch panel in your browser | `presets/`; modules from the catalog |
 
 ### Desktop app
 
@@ -65,17 +67,9 @@ Launch it, and the patch panel opens in its own window with an icon in the tray
 menu brings it back, opens it in a browser, toggles PANIC, opens the data folder,
 and quits. Starting it again while it's running just opens the running one.
 
-The app **ships with no modules and no presets**, not even `mock`. Add them from
-the patch panel (**Upload…**, or drop files on the window; see
-[Adding modules & presets](#adding-modules--presets)). For example, zip any folder
-from this repo:
-
-```bash
-cd sources && zip -r ~/mock.zip mock      # and joycon (mock depends on it), bmi160, ...
-cd sinks   && zip -r ~/hid.zip hid        # dryrun needs hid too
-```
-
-Then upload `presets/*.json` for presets. Everything you add lives in a per-user
+The app **ships with no modules and no presets**, not even `mock`. Install modules
+from **Browse…** in the patch panel (see [Module catalog](#module-catalog)), and
+upload `presets/*.json` with **Upload…** (or drop them on the window). Everything you add lives in a per-user
 data folder, so updating the app keeps it:
 
 | | data folder |
@@ -181,6 +175,9 @@ sources/bmi160/
 
 ```toml
 # sources/bmi160/module.toml
+description = "Arduino Nano + BMI160 IMU over USB serial"   # one line, for the catalog
+version = "1.0.0"                                  # dotted numbers; bump on every change
+entry   = "__init__.py"                            # optional: the file that runs (this is the default)
 python  = ["pyserial>=3.5"]                        # pip requirement strings (markers ok)
 depends = []                                       # modules whose code this one imports
 system  = ["Linux: your user in the `dialout` group"]   # printed, not managed
@@ -222,25 +219,67 @@ resolver names both modules' files when that happens.
 
 ## Sources & sinks
 
-Each module's setup (pairing, wiring, firmware, permissions) and its ports are
-documented in its own folder. Packages are installed automatically; the module
-README covers what pip can't do.
+Sources and sinks live in their own repo, [sensor-patchbay-modules](https://github.com/JustinParkGithub/sensor-patchbay-modules),
+not here. Each module's setup (pairing, wiring, firmware, permissions) and its
+ports are documented in its folder there. Packages are installed automatically;
+the module README covers what pip can't do.
 
-| type | kind | what | setup |
-|---|---|---|---|
-| `joycon` | source | Nintendo Switch Joy-Con (R) over Bluetooth | [sources/joycon/](sources/joycon/README.md) |
-| `mock` | source | synthetic Joy-Con stand-in, no hardware | — |
-| `ds4` | source | Sony DualShock 4 over USB or Bluetooth | [sources/ds4/](sources/ds4/README.md) |
-| `bmi160` | source | Arduino Nano + BMI160 IMU over USB serial | [sources/bmi160/](sources/bmi160/README.md) |
-| `bend4` | source | Arduino Nano + four flex sensors over USB serial | [sources/bend4/](sources/bend4/) |
-| `cv` | source | webcam hand tracking (OpenCV + MediaPipe) | [sources/cv/](sources/cv/README.md) |
-| `gamepad` | source | any XInput / DInput / Switch-style controller (SDL2) | [sources/gamepad/](sources/gamepad/README.md) |
-| `zero2` | source | 8BitDo Zero 2 (falls back to any controller), same ports as `gamepad` | [sources/gamepad/](sources/gamepad/README.md) |
-| `hid` | sink | virtual mouse + keyboard (pynput) | see **Ports** |
-| `dryrun` | sink | logging-only stand-in for `hid` | — |
-| `gpio` | sink | Raspberry Pi PWM + digital out | [sinks/gpio/](sinks/gpio/) |
+| type | kind | what |
+|---|---|---|
+| `joycon` | source | Nintendo Switch Joy-Con (R) over Bluetooth |
+| `mock` | source | synthetic Joy-Con stand-in, no hardware |
+| `ds4` | source | Sony DualShock 4 over USB or Bluetooth |
+| `bmi160` | source | Arduino Nano + BMI160 IMU over USB serial |
+| `bend4` | source | Arduino Nano + four flex sensors over USB serial |
+| `cv` | source | webcam hand tracking (OpenCV + MediaPipe) |
+| `gamepad` | source | any XInput / DInput / Switch-style controller (SDL2); also registers `zero2` (8BitDo Zero 2) |
+| `hid` | sink | virtual mouse + keyboard (pynput) |
+| `dryrun` | sink | logging-only stand-in for `hid` |
+| `gpio` | sink | Raspberry Pi PWM + digital out |
 
 `python run.py --sync` prints every enabled module's system-setup notes.
+
+### Module catalog
+
+The engine reads the modules repo's `index.json` and installs from it:
+
+| where | how |
+|---|---|
+| patch panel | **Browse…** in the top bar: search, filter sources/sinks, **Install** / **Update** / **Remove** |
+| console (`--cli`) | `catalog [query]`, `install <name> [--force]`, `uninstall <name>` |
+| command line | `python run.py --catalog`, `python run.py --install mock --install dryrun` |
+
+Installing downloads every file of the module, checks it against the sha256 in
+the index, writes it to the data folder (`sources/<type>/` in a checkout, which
+git ignores), and syncs. Whatever the module `depends` on comes with it
+(`mock` → `joycon`, `dryrun` → `hid`). The last index fetched is cached, so the
+panel still lists modules offline.
+
+**Any module folder on disk counts as installed**, however it got there: from
+the catalog, uploaded, copied in by hand, or loaded with `--ext`. Installs and
+uploads also leave a `.install.json` in the folder recording where it came
+from, its version, and a digest of its files. That record is how the panel
+tells these apart:
+
+| state | meaning | button |
+|---|---|---|
+| **installed** | unchanged since it was installed (or no record, but identical to the catalog's) | — |
+| **update available** | unchanged locally; the catalog's files differ. Shown as *1.0.0 → 1.1.0*, or as *catalog has an older version* | **Update** / **Downgrade** |
+| **modified locally** | its files changed after it was installed | **Reinstall** (asks first) |
+| **local only** | no install record: copied in by hand or from `--ext` | **Replace** (asks first), if the catalog has it |
+
+Installing over a modified or local copy would lose files nobody installed, so
+it needs confirming in the panel, `install <name> --force` in the console, or
+`--install <name> --force` on the command line.
+
+The catalog location is, first match wins: `$PATCHBAY_CATALOG`, then `catalog`
+in `patchbay.toml`, then the modules repo on GitHub. It can be any URL serving
+that repo's layout (a fork, GitHub Pages, a LAN server) or a local path, which
+is the easy way to develop modules:
+
+```bash
+PATCHBAY_CATALOG=~/Dev/sensor-patchbay-modules python run.py
+```
 
 ---
 
@@ -266,8 +305,10 @@ middle. Nothing loads from the internet.
   them. A preset that needs a source or sink you don't have is marked **⚠** in
   the dropdown. The badge beside it says which (hover it for why), and loading
   it warns too. See [Preset dependencies](#preset-dependencies).
-- **Upload… / ⟳ Sync** — add modules and presets, and re-read what's on disk.
-  See [Adding modules & presets](#adding-modules--presets).
+- **Browse…** — search the module catalog and install, update or remove sources
+  and sinks. See [Module catalog](#module-catalog).
+- **Upload… / ⟳ Sync** — add modules and presets from files, and re-read what's
+  on disk. See [Adding modules & presets](#adding-modules--presets).
 - **Rate** — the `Hz` box in the top bar sets the engine tick rate live.
 - **PANIC** — disables every output instantly and releases held keys/buttons.
   Patch any button to `sys/panic.toggle` to get the same switch on hardware.
@@ -285,7 +326,7 @@ Uploading a module or preset that already exists replaces it.
 - A module zip holds one module folder (`mock/__init__.py`, `mock/module.toml`,
   ...). The files can also sit at the top of the zip, which then names the
   module, or under `sources/` / `sinks/`. Outside those, `module.toml` must say
-  `kind = "source"` or `"sink"`; every module in this repo does.
+  `kind = "source"` or `"sink"`; every module in the catalog does.
 - Uploads go to the data folder: the repo itself when running from source, the
   per-user folder in the app.
 
@@ -468,6 +509,12 @@ Source ports are listed in each source's README (see **Sources & sinks**).
 
 ## Extending it
 
+> **The full requirements for a source or sink** (manifest keys, ports, what
+> `read()`, `apply()`, `release_all()` and `available()` must do, and the
+> pull-request checklist) are in the
+> [modules repo's README](https://github.com/JustinParkGithub/sensor-patchbay-modules#writing-a-source-or-sink).
+> Publish a module by opening a pull request there.
+
 Adding a source or sink is **one new folder**, with no edits to `run.py`, the
 engine, or the UI. Create `sinks/<type>/` (or `sources/<type>/`) containing an
 `__init__.py` and a `module.toml`. The folder name must match the class's `type`.
@@ -521,7 +568,7 @@ so a machine where the library didn't install (wrong platform, `--no-sync`) stil
 lists it politely instead of failing to load.
 
 There's a complete, working example already in the tree:
-[`sinks/gpio/`](sinks/gpio/) drives
+[`sinks/gpio/`](https://github.com/JustinParkGithub/sensor-patchbay-modules/tree/main/sinks/gpio) drives
 Raspberry Pi GPIO — PWM channels for servos / drone ESCs, digital pins for relays —
 and falls back to logging when there's no Pi, so you can build the patch on a
 laptop. Copy it.
@@ -554,10 +601,11 @@ to copy.
 engine/     signals.py nodes.py graph.py loop.py registry.py   # portable core: bus, transforms, routing, tick, plugin registry
             modules.py                                     # module manifests, patchbay.lock, environment sync
             paths.py library.py presets.py                 # data folder, uploads + sync, preset dependencies
-sources/    base.py  joycon/ mock/ bmi160/ bend4/ cv/ ds4/ gamepad/  # one folder per source type (code + module.toml + firmware/assets)
-sinks/      base.py  hid/ dryrun/ gpio/                    # one folder per sink type
-patchbay.toml                                              # rig config: disable / autostart / core packages
-patchbay.lock                                              # generated: exact package set for the enabled modules
+            catalog.py                                     # module catalog: search / install / update / remove
+sources/    base.py  (+ installed source folders, git-ignored)    # the plugin contract; modules come from the catalog
+sinks/      base.py  (+ installed sink folders, git-ignored)
+patchbay.toml                                              # rig config: disable / autostart / core packages / catalog
+patchbay.lock                                              # generated per machine (git-ignored): exact packages for installed modules
 ui/         src/ (plain TS)    dist/ (committed build)    # patch panel — see ui/README.md
 presets/    mouse.json  keyboard.json  bmi160-mouse.json  bend4-mouse-keyboard.json  gamepad-mouse-keyboard.json  ds4-mouse.json
 docs/       OVERVIEW.md  SPECIFICATION.md                  # informal + formal docs

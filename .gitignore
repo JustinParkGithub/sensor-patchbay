@@ -15,3 +15,12 @@ ui/node_modules/
 # Desktop app build output (PyInstaller) - not ui/dist, which is committed.
 /build/
 /dist/
+
+# Sources and sinks live in their own repo (sensor-patchbay-modules) and are
+# installed from the catalog (Browse modules in the UI, `install <name>` in the
+# console, or `run.py --install <name>`). Only the plugin base classes stay here.
+/sources/*/
+/sinks/*/
+# Resolved from whichever modules are installed, so it differs per machine.
+/patchbay.lock
+.catalog-cache.json
