@@ -81,7 +81,8 @@ commands:
   presets                        list preset files (with what each needs that's missing)
   load <name> | save [name] | delete <name>
   catalog [query] [--refresh]    search the online module catalog
-  install <name>                 download a module (and what it depends on) from the catalog
+  install <name> [--force]       download a module (and what it depends on) from the catalog;
+                                 --force overwrites a modified or hand-placed copy
   install <file.zip|file.json>   add a module folder (zipped) or a preset file
   uninstall <name>               delete an installed module from the data folder
   sync                           re-read modules + presets, install module packages
@@ -170,17 +171,28 @@ commands:
         if not shown:
             print("nothing matches" if words else "the catalog is empty")
         for m in shown:
-            mark = {"installed": "✓", "update": "↑", "local": "·"}.get(m["state"], " ")
-            print(f"  {mark} {m['kind']:6} {m['name']:10} {m['description']}")
-        print(f"\n  ✓ installed  ↑ update available  · local only    ({listing['url']})")
+            mark = {"installed": "✓", "update": "↑", "modified": "✎", "local": "·"}.get(m["state"], " ")
+            ver = m["version"] or m["installed_version"] or ""
+            if m["state"] == "update":
+                ver = f"{m['installed_version'] or '?'} → {m['version'] or '?'}"
+            elif m["state"] in ("modified", "local", "installed") and m["installed_version"]:
+                ver = m["installed_version"]
+            print(f"  {mark} {m['kind']:6} {m['name']:10} {ver:16} {m['description']}")
+        print(f"\n  ✓ installed  ↑ update  ✎ modified  · local only    ({listing['url']})")
 
     def cmd_install(self, args):
+        force = "--force" in args
+        args = [a for a in args if a != "--force"]
         if len(args) != 1:
-            print("usage: install <name> | install <file.zip|file.json>")
+            print("usage: install <name> [--force] | install <file.zip|file.json>")
             return
         path = Path(args[0]).expanduser()
         if not path.is_file() and path.suffix.lower() not in (".zip", ".json"):
-            results = catalog.install(args[0])
+            try:
+                results = catalog.install(args[0], force=force)
+            except catalog.Conflict as e:
+                print(f"{e}. Run `install {args[0]} --force` to go ahead.")
+                return
             for res in results:
                 verb = "updated" if res["replaced"] else "installed"
                 print(f"{verb} {res['module_kind']} '{res['name']}'")

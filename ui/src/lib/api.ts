@@ -116,9 +116,12 @@ export const api = {
   /** The online module catalog; `refresh` skips the engine's 5-minute memo. */
   catalog: (refresh = false) =>
     request<CatalogListing>('GET', `/api/catalog${refresh ? '?refresh=1' : ''}`),
-  /** Download a module (and its depends) from the catalog, then sync. */
-  catalogInstall: (name: string) =>
-    request<SyncedResponse & { installed: UploadResult[] }>('POST', '/api/catalog/install', { name }),
+  /**
+   * Download a module (and its depends) from the catalog, then sync. Without
+   * `force`, the engine refuses (409) to overwrite a modified or hand-placed copy.
+   */
+  catalogInstall: (name: string, force = false) =>
+    request<SyncedResponse & { installed: UploadResult[] }>('POST', '/api/catalog/install', { name, force }),
   /** Delete an installed module from the data folder, then sync. */
   catalogRemove: (name: string) =>
     request<SyncedResponse & { removed: { name: string; kind: ModuleKind; needed_by: string[] } }>(

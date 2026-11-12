@@ -224,9 +224,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"error": "need a module name"}, 400)
             try:
                 if p.endswith("/install"):
-                    done = {"installed": module_catalog.install(name)}
+                    done = {"installed": module_catalog.install(name, force=bool(b.get("force")))}
                 else:
                     done = {"removed": module_catalog.remove(name)}
+            except module_catalog.Conflict as ex:
+                # The UI asks, then retries with "force": true.
+                return self._json({"error": str(ex), "conflict": True}, 409)
             except module_catalog.CatalogError as ex:
                 return self._json({"error": str(ex)}, 400)
             return self._synced(**done)

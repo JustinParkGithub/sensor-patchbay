@@ -12,7 +12,7 @@
  * and compare fields with `!==` to decide what to repaint.
  */
 
-import { api, errorMessage } from '../lib/api'
+import { api, ApiError, errorMessage } from '../lib/api'
 import type { ConnectionPatch } from '../lib/api'
 import { buildPortIndex, compatibleSinks, lastConnectionBetween, wiredPorts } from '../lib/ports'
 import type { PortEntry } from '../lib/ports'
@@ -179,12 +179,15 @@ export class Patchbay {
   async fromCatalog(
     action: 'install' | 'remove',
     name: string,
-  ): Promise<Awaited<ReturnType<typeof api.catalogInstall | typeof api.catalogRemove>> | null> {
+    force = false,
+  ): Promise<Awaited<ReturnType<typeof api.catalogInstall | typeof api.catalogRemove>> | { conflict: string } | null> {
     try {
-      const res = action === 'install' ? await api.catalogInstall(name) : await api.catalogRemove(name)
+      const res = action === 'install' ? await api.catalogInstall(name, force) : await api.catalogRemove(name)
       this.set({ plugins: res.plugins, presets: res.presets, presetInfo: res.preset_info })
       return res
     } catch (e) {
+      // Installing over a modified or hand-placed copy: the caller asks first.
+      if (e instanceof ApiError && e.status === 409) return { conflict: e.message }
       toastError(e)
       return null
     }

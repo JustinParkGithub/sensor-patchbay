@@ -88,13 +88,18 @@ def _import_name(mod) -> str:
 
 def _import_module(mod) -> None:
     """Import one :class:`engine.modules.Module` so its decorators run."""
-    if not mod.external:
+    from engine.modules import DEFAULT_ENTRY
+    if not mod.external and mod.entry == DEFAULT_ENTRY:
         importlib.import_module(_import_name(mod))
         return
-    # An out-of-repo folder isn't on sys.path; load it as a package by file path.
+    # An out-of-repo folder isn't on sys.path, and a custom entry isn't the
+    # package's __init__.py: load it as a package by file path, under the same
+    # import name, so `from sources.<type> import ...` still works.
     name = _import_name(mod)
+    if not mod.external:
+        importlib.import_module(f"{mod.kind}s")
     spec = importlib.util.spec_from_file_location(
-        name, mod.path / "__init__.py", submodule_search_locations=[str(mod.path)])
+        name, mod.path / mod.entry, submodule_search_locations=[str(mod.path)])
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
     spec.loader.exec_module(module)
@@ -150,6 +155,10 @@ def discover(modules: list | None = None):
 
     for mod in modules:
         if mod.name in _LOADED:
+            continue
+        if not mod.python_entry:
+            _say(f"[modules] {mod.name}: entry {mod.entry} isn't Python; this engine can't "
+                 "run it (it needs an engine that runs plugins out of process)")
             continue
         registry = SOURCES if mod.kind == "source" else SINKS
         import_name = _import_name(mod)

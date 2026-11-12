@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import _thread
 import argparse
+import signal
 import sys
 import threading
 import time
@@ -211,6 +212,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--install", action="append", default=[], metavar="NAME",
                     help="download a module (and its depends) from the catalog before "
                          "starting (repeatable); see --catalog")
+    ap.add_argument("--force", action="store_true",
+                    help="with --install: overwrite a modified or hand-placed copy")
     return ap
 
 
@@ -223,14 +226,19 @@ def prepare(args) -> bool:
     if args.catalog:
         listing = catalog.listing(refresh=True)
         for m in listing["modules"]:
-            print(f"  {m['state']:9} {m['kind']:6} {m['name']:10} {m['description']}")
+            ver = m["installed_version"] or m["version"] or ""
+            if m["state"] == "update":
+                ver = f"{m['installed_version'] or '?'} → {m['version'] or '?'}"
+            print(f"  {m['state']:9} {m['kind']:6} {m['name']:10} {ver:16} {m['description']}")
         print(f"\n({listing['url']})")
         return True
     for name in args.install:
         try:
-            for res in catalog.install(name):
+            for res in catalog.install(name, force=args.force):
                 print(f"[catalog] {'updated' if res['replaced'] else 'installed'} "
                       f"{res['module_kind']} {res['name']}")
+        except catalog.Conflict as e:
+            print(f"[catalog] {e} (add --force to go ahead)")
         except catalog.CatalogError as e:
             print(f"[catalog] {name}: {e}")
     # Make the environment match the declared modules, then import the enabled ones.
@@ -276,6 +284,11 @@ def start_engine(args) -> EngineLoop:
 
 
 def main(argv=None):
+    # Started in the background (`python run.py &`, some launchers), SIGINT
+    # arrives ignored. Ctrl+C couldn't stop us then, and neither could the UI's
+    # Quit, which raises it with _thread.interrupt_main (a no-op on an ignored
+    # signal). Take it back.
+    signal.signal(signal.SIGINT, signal.default_int_handler)
     args = build_parser().parse_args(argv)
     if prepare(args):
         return

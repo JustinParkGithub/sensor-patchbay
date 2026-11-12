@@ -175,6 +175,9 @@ sources/bmi160/
 
 ```toml
 # sources/bmi160/module.toml
+description = "Arduino Nano + BMI160 IMU over USB serial"   # one line, for the catalog
+version = "1.0.0"                                  # dotted numbers; bump on every change
+entry   = "__init__.py"                            # optional: the file that runs (this is the default)
 python  = ["pyserial>=3.5"]                        # pip requirement strings (markers ok)
 depends = []                                       # modules whose code this one imports
 system  = ["Linux: your user in the `dialout` group"]   # printed, not managed
@@ -243,16 +246,31 @@ The engine reads the modules repo's `index.json` and installs from it:
 | where | how |
 |---|---|
 | patch panel | **Browse…** in the top bar: search, filter sources/sinks, **Install** / **Update** / **Remove** |
-| console (`--cli`) | `catalog [query]`, `install <name>`, `uninstall <name>` |
+| console (`--cli`) | `catalog [query]`, `install <name> [--force]`, `uninstall <name>` |
 | command line | `python run.py --catalog`, `python run.py --install mock --install dryrun` |
 
 Installing downloads every file of the module, checks it against the sha256 in
 the index, writes it to the data folder (`sources/<type>/` in a checkout, which
 git ignores), and syncs. Whatever the module `depends` on comes with it
-(`mock` → `joycon`, `dryrun` → `hid`). A module whose files differ from the
-catalog's is shown as **update available**. One that isn't in the catalog
-(uploaded, or from `--ext`) is **local only**. The last index fetched is cached,
-so the panel still lists modules offline.
+(`mock` → `joycon`, `dryrun` → `hid`). The last index fetched is cached, so the
+panel still lists modules offline.
+
+**Any module folder on disk counts as installed**, however it got there: from
+the catalog, uploaded, copied in by hand, or loaded with `--ext`. Installs and
+uploads also leave a `.install.json` in the folder recording where it came
+from, its version, and a digest of its files. That record is how the panel
+tells these apart:
+
+| state | meaning | button |
+|---|---|---|
+| **installed** | unchanged since it was installed (or no record, but identical to the catalog's) | — |
+| **update available** | unchanged locally; the catalog's files differ. Shown as *1.0.0 → 1.1.0*, or as *catalog has an older version* | **Update** / **Downgrade** |
+| **modified locally** | its files changed after it was installed | **Reinstall** (asks first) |
+| **local only** | no install record: copied in by hand or from `--ext` | **Replace** (asks first), if the catalog has it |
+
+Installing over a modified or local copy would lose files nobody installed, so
+it needs confirming in the panel, `install <name> --force` in the console, or
+`--install <name> --force` on the command line.
 
 The catalog location is, first match wins: `$PATCHBAY_CATALOG`, then `catalog`
 in `patchbay.toml`, then the modules repo on GitHub. It can be any URL serving

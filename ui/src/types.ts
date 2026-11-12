@@ -126,7 +126,7 @@ export interface SyncReport {
 }
 
 /** Where a catalog module stands on this machine (see `engine/catalog.py`). */
-export type CatalogState = 'available' | 'installed' | 'update' | 'local'
+export type CatalogState = 'available' | 'installed' | 'update' | 'modified' | 'local'
 
 /** One entry of `GET /api/catalog`. */
 export interface CatalogModule {
@@ -136,10 +136,22 @@ export interface CatalogModule {
   depends: string[]
   python: string[]
   system: string[]
+  /** The catalog's version; null for a module the catalog doesn't have. */
+  version: string | null
+  /** What runs: a `.py` file, or a native program (see `runnable`). */
+  entry: string
+  /** False when this engine can't run the entry (a native plugin). */
+  runnable: boolean
   state: CatalogState
+  /** The installed copy's version; null when not installed. */
+  installed_version: string | null
+  /** For `update`: how the catalog's version compares with the installed one. */
+  change: 'upgrade' | 'downgrade' | 'changed' | null
+  /** Where the installed copy came from (its install record): the index URL, `upload:<file>`, or null. */
+  source: string | null
   /** Whether the engine may delete it (it lives in the data folder). */
   removable: boolean
-  /** Bytes to download; 0 for `local` modules. */
+  /** Bytes to download; 0 for modules the catalog doesn't have. */
   size: number
 }
 
@@ -155,7 +167,16 @@ export interface CatalogListing {
 /** `POST /api/upload` — one file written into the data folder. */
 export type UploadResult =
   | { ok: true; kind: 'preset'; name: string; replaced: boolean; missing: MissingRequirement[] }
-  | { ok: true; kind: 'module'; name: string; module_kind: ModuleKind; replaced: boolean; path: string }
+  | {
+      ok: true
+      kind: 'module'
+      name: string
+      module_kind: ModuleKind
+      replaced: boolean
+      path: string
+      version: string
+      digest: string
+    }
 
 /** `GET /api/state` — everything that only changes when the graph is reloaded. */
 export interface EngineState {
