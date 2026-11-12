@@ -69,10 +69,14 @@ def _reveal(folder):
 
 
 def _tray_image():
-    """The tray icon, drawn here so the app ships no image files: an amber jack
-    and a teal jack joined by a violet cable, on the UI's dark panel colour."""
+    """The tray icon: the app logo, which the built UI carries as its favicon
+    (ui/public/icon.png). Without it (a UI built before the logo existed), a
+    simple drawn stand-in: two jacks joined by a cable on the panel colour."""
     from PIL import Image, ImageDraw
 
+    logo = paths.APP / "ui" / "dist" / "icon.png"
+    if logo.is_file():
+        return Image.open(logo).convert("RGBA").resize((64, 64), Image.LANCZOS)
     n = 64
     img = Image.new("RGBA", (n, n), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)

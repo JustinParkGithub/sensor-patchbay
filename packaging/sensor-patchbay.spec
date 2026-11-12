@@ -69,8 +69,13 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
+# The logo (packaging/icon/make_icons.py draws it). Linux desktops take the icon
+# from a .desktop file instead, so there's nothing to embed there.
+ICONS = ROOT / "packaging" / "icon"
+icon = {"darwin": ICONS / "sensor-patchbay.icns", "win32": ICONS / "sensor-patchbay.ico"}.get(sys.platform)
+
 common = dict(exclude_binaries=True, debug=False, strip=False, upx=False,
-              icon=None, target_arch=None, codesign_identity=None, entitlements_file=None)
+              icon=str(icon) if icon else None, target_arch=None, codesign_identity=None, entitlements_file=None)
 gui = EXE(pyz, a.scripts, [], name="SensorPatchbay", console=False, **common)
 cli = EXE(pyz, a.scripts, [], name="patchbay", console=True, **common)
 
@@ -80,6 +85,7 @@ if sys.platform == "darwin":
     app = BUNDLE(
         coll,
         name="Sensor Patchbay.app",
+        icon=str(icon),
         bundle_identifier="io.github.sensorpatchbay",
         info_plist={
             "CFBundleDisplayName": "Sensor Patchbay",

@@ -1,12 +1,19 @@
+<p align="center"><img src="packaging/icon/sensor-patchbay.png" width="160" alt="sensor-patchbay logo: patch cables plugged into a patchbay in front of a gear"></p>
+
 # sensor-patchbay
 
 A **sensor → routing → command** pipeline: named signals from any sensor go on a
 typed bus, run through a hot-editable **routing graph** (scale, curve, deadzone,
-smoothing, thresholds, gesture gates…), and drive any output. The catalog's
+smoothing, thresholds, combining two signals…), and drive any output. The catalog's
 inputs are **any game controller** (Xbox, PlayStation, Switch, 8BitDo, …, with
 motion and touchpad where the pad has them), **flex sensors** and **webcam hand
-tracking**. Its output is a **virtual mouse & keyboard**. Sources and sinks are
-plugins you install from a catalog, add live, and extend with one folder.
+tracking**. Its output is a **virtual mouse & keyboard**; this repo also carries
+sinks for **key combos, media keys, OSC and webhooks** (see
+[Sources & sinks](#sources--sinks)). Sources and sinks are plugins you install
+from a catalog, add live, and extend with one folder.
+
+**[Download the desktop app](https://github.com/JustinParkGithub/sensor-patchbay/releases/latest)**
+for Windows, macOS or Linux, or run it from source.
 
 You wire it together in a browser-based **patch panel**, or, on a headless board,
 from an on-device **CLI console** — two front-ends over one engine. It runs
@@ -47,21 +54,30 @@ There are two ways to run it, and both include the command-line console:
 
 ### Desktop app
 
-Build it per platform (PyInstaller can't cross-compile), or take the build from
-the **Desktop app** GitHub Actions workflow (run it from the Actions tab, or push
-a `v*` tag; each OS's build is attached to the run):
+Download the build for your OS from
+[**Releases**](https://github.com/JustinParkGithub/sensor-patchbay/releases/latest):
+
+| platform | download | run | notes |
+|---|---|---|---|
+| Windows (x86-64) | `sensor-patchbay-windows-x86_64.zip` | unzip, run `sensor-patchbay\SensorPatchbay.exe` | uses the WebView2 runtime that ships with Windows 10/11; unsigned, so SmartScreen asks once (*More info → Run anyway*) |
+| macOS (Apple silicon) | `sensor-patchbay-macos-arm64.zip` | unzip, move `Sensor Patchbay.app` to Applications | unsigned: right-click → **Open** the first time; the `hid` sink still needs Accessibility |
+| Linux (x86-64) | `sensor-patchbay-linux-x86_64.tar.gz` | extract, run `sensor-patchbay/SensorPatchbay` | needs WebKitGTK 4.1 (`gir1.2-webkit2-4.1`); the tray needs AppIndicator on GNOME |
+
+#### Building it yourself
+
+PyInstaller can't cross-compile, so each OS builds its own:
 
 ```bash
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r packaging/requirements.txt         # PyInstaller, pywebview, pystray, Pillow, uv
-pyinstaller packaging/sensor-patchbay.spec
+pyinstaller packaging/sensor-patchbay.spec        # -> dist/  (Linux: system WebKitGTK + PyGObject, see packaging/requirements.txt)
 ```
 
-| platform | output | notes |
-|---|---|---|
-| Windows | `dist/sensor-patchbay/SensorPatchbay.exe` | uses the WebView2 runtime that ships with Windows 10/11 |
-| macOS | `dist/Sensor Patchbay.app` | unsigned: right-click → Open the first time; the `hid` sink still needs Accessibility |
-| Linux | `dist/sensor-patchbay/SensorPatchbay` | build with system WebKitGTK + PyGObject (see `packaging/requirements.txt`); the tray needs AppIndicator on GNOME |
+The **Desktop app** GitHub Actions workflow does this on all three OSes. Run it
+from the Actions tab to get the builds as run artifacts. Pushing a `v*` tag
+(`git tag v0.2.0 && git push origin v0.2.0`) also publishes them as a release.
+The logo is drawn by `packaging/icon/make_icons.py`, which writes the `.icns`,
+`.ico` and PNG files; rerun it after changing the drawing.
 
 Launch it, and the patch panel opens in its own window with an icon in the tray
 (menu bar on macOS). **Closing the window keeps the engine running.** The tray
@@ -214,15 +230,14 @@ modules that pin incompatible versions of a package can't both be enabled. The
 resolver names both modules' files when that happens.
 
 ---
----
 
 ## Sources & sinks
 
 Sources, sinks **and presets** live in their own repo,
 [sensor-patchbay-modules](https://github.com/JustinParkGithub/sensor-patchbay-modules),
-not here. Each module's setup (pairing, wiring, firmware, permissions) and its
-ports are documented in its folder there. Packages are installed automatically;
-the module README covers what pip can't do.
+and install from its catalog. Each module's setup (pairing, wiring, firmware,
+permissions) and its ports are documented in its folder there. Packages are
+installed automatically; the module README covers what pip can't do.
 
 | type | kind | what |
 |---|---|---|
@@ -231,6 +246,17 @@ the module README covers what pip can't do.
 | `cv` | source | webcam hand tracking (OpenCV + MediaPipe) |
 | `hid` | sink | virtual mouse + keyboard (pynput) |
 
+Four more sinks are in **this repo's `sinks/`** folder and aren't in the catalog
+yet. Running from source they load like any installed module (`hotkey` and `media` once `hid` is installed). The
+desktop app doesn't bundle them; zip a folder and add it with **Upload…**.
+
+| type | kind | what | needs |
+|---|---|---|---|
+| `hotkey` | sink | key combos on one gate (`combo.ctrl+c`), pressed in order; `combos=` picks the jacks | `hid` |
+| `media` | sink | play/pause, next, previous, mute, volume keys, and `volume.rate` for a stick or tilt | `hid` |
+| `osc` | sink | OSC floats over UDP to `host:port`, for DAWs, lighting and visual tools | — |
+| `webhook` | sink | a rising edge requests `url1`..`url4` (set on the sink, never in a preset) | — |
+
 | preset | what | uses |
 |---|---|---|
 | `controller-mouse-keyboard` | any controller as keyboard + mouse: d-pad/left stick are arrows, right stick the mouse | `controller`, `hid` |
@@ -238,10 +264,6 @@ the module README covers what pip can't do.
 | `controller-air-mouse` | point a motion controller to move the cursor | `controller`, `hid` |
 | `controller-tilt-keys` | tilt a motion controller for WASD, shake for Esc | `controller`, `hid` |
 | `bend4-mouse-keyboard` | bend fingers to look, walk and jump | `bend4`, `hid` |
-| `hotkey` | sink | key combos on one gate (`combo.ctrl+c`), pressed in order; `combos=` picks the jacks | same as `hid` |
-| `media` | sink | play/pause, next, previous, mute, volume keys, and `volume.rate` for a stick or tilt | same as `hid` |
-| `osc` | sink | OSC floats over UDP to `host:port`, for DAWs, lighting and visual tools | — |
-| `webhook` | sink | a rising edge requests `url1`..`url4` (set on the sink, never in a preset) | — |
 
 `python run.py --sync` prints every enabled module's system-setup notes.
 
@@ -456,11 +478,12 @@ checked against the namespaces its connections use.
 
 A cable carries one source, and `combine` adds a second. Click a cable, add a
 `combine` node, and pick the other port in its `input` field; a dashed line on the
-panel shows the link. For example, to move the mouse only while L1 is held:
+panel shows the link. For example, to steer the mouse with the gyro only while the
+left bumper is held (a "gyro clutch"):
 
 ```json
-{"source": "ds4/gyro.y", "sink": "hid/mouse.dx",
- "chain": [{"type": "combine", "params": {"op": "gate", "input": "ds4/btn.l1"}},
+{"source": "controller/gyro.y", "sink": "hid/mouse.dx",
+ "chain": [{"type": "combine", "params": {"op": "gate", "input": "controller/btn.lb"}},
            {"type": "scale", "params": {"factor": 10.0}}]}
 ```
 
@@ -471,15 +494,15 @@ panel shows the link. For example, to move the mouse only while L1 is held:
 | `add`, `mul`, `min`, `max` | arithmetic on the two values |
 | `and`, `or` | 0/1 from both values |
 
-`presets/ds4-gyro-clutch.json` is the full version. "On" means `>= level` (default
-0.5), so an analog trigger can gate too. The node
+"On" means `>= level` (default 0.5), so an analog trigger can gate too. The node
 works anywhere in the chain, and `input` reads the port's raw value. If its module
 isn't running, `input` reads 0: `gate` stays closed, and `unless` stays open.
 Removing a module also drops cables that use it as an `input`.
 
 A `gate`/`unless` pair on one modifier button gives each button a second function,
-like a macropad layer: see `presets/ds4-macropad.json`, where L1 turns play/pause
-into next. For the other direction, one source to several sinks, patch one cable to
+like a macropad layer. For example, patch `controller/btn.a` to both `media/play_pause`
+(`unless` `controller/btn.lb`) and `media/next` (`gate` `controller/btn.lb`): A
+plays and pauses, and with the bumper held it skips. For the other direction, one source to several sinks, patch one cable to
 each. On the console: `combine <conn-id> <op> <port> [level]`.
 
 ---
@@ -493,6 +516,12 @@ source's README (see **Sources & sinks**).
 (clicks/second), `mouse.{left,right,middle,btn_back,btn_forward}`, and
 `key.<name>` for any single character or named key (`space`, `esc`, `enter`,
 `tab`, `shift`, `ctrl`, `up`, …).
+
+**Sinks `hotkey`, `media`, `osc`, `webhook`** — `combo.<keys>` (e.g.
+`combo.ctrl+shift+t`); `play_pause`, `next`, `previous`, `mute`, `volume.up`,
+`volume.down`, `volume.rate`; `fader.1`..`4` and `button.1`..`4` (any port id
+works from a preset); `hook.1`..`4`. Each one's docstring in `sinks/<type>/`
+has the details.
 
 **Sink `sys`** — `preset.cycle` (rising edge loads the next preset file) and
 `panic.toggle` (rising edge toggles panic, same as the PANIC button).
@@ -592,7 +621,7 @@ engine/     signals.py nodes.py graph.py loop.py registry.py   # portable core: 
             paths.py library.py presets.py                 # data folder, uploads + sync, preset dependencies
             catalog.py                                     # module catalog: search / install / update / remove
 sources/    base.py  (+ installed source folders, git-ignored)    # the plugin contract; modules come from the catalog
-sinks/      base.py  (+ installed sink folders, git-ignored)
+sinks/      base.py  hotkey/ media/ osc/ webhook/  (+ installed sink folders, git-ignored)
 patchbay.toml                                              # rig config: disable / autostart / core packages / catalog
 patchbay.lock                                              # generated per machine (git-ignored): exact packages for installed modules
 ui/         src/ (plain TS)    dist/ (committed build)    # patch panel — see ui/README.md
@@ -603,6 +632,9 @@ server.py   http.server + Server-Sent Events + REST       # stdlib only
 run.py      entrypoint (and the command line)
 app.py      desktop app: native window + tray around run.py's startup
 packaging/  sensor-patchbay.spec  requirements.txt         # PyInstaller build of the desktop app
+            icon/  make_icons.py (+ the .png/.icns/.ico it writes)   # the logo
+tests/      unittest suite (combine node + the software sinks)
+.github/    workflows/desktop-app.yml                      # builds every OS; a v* tag publishes a release
 ```
 
 ## Notes
@@ -616,7 +648,8 @@ packaging/  sensor-patchbay.spec  requirements.txt         # PyInstaller build o
 - The engine runs at 120 Hz by default; plenty for motion input, comfortable for
   Python without numpy.
 - `--selftest` is the CI check: a built-in oscillator source → recording sink, so it
-  needs no modules installed.
+  needs no modules installed. `python -m unittest discover tests` covers the
+  `combine` node and the four software sinks without touching OS input.
 - Tested here: engine math, the REST API (including the new `/api/plugins` and the
   runtime `/api/source|sink` add/remove endpoints), the SSE stream and its
   `mod_rev` live-refresh signal, presets and panic via `--selftest` and a scripted
