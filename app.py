@@ -40,7 +40,7 @@ import webbrowser
 from pathlib import Path
 
 import run
-from engine import paths
+from engine import paths, tls
 
 TITLE = "sensor · patchbay"
 # run.py flags that mean "no window": they either exit or own the terminal.
@@ -259,6 +259,7 @@ class Desktop:
 
 
 def main(argv=None):
+    tls.install_default()        # before any network call; see engine/tls.py
     argv = sys.argv[1:] if argv is None else list(argv)
     args = build_parser().parse_args(argv)
     if any(getattr(args, flag) for flag in CONSOLE_FLAGS):

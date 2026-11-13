@@ -19,7 +19,7 @@
 import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 ROOT = Path(SPECPATH).parent
 NAME = "sensor-patchbay"
@@ -62,8 +62,10 @@ a = Analysis(
     [str(ROOT / "app.py")],
     pathex=[str(ROOT)],
     binaries=[(find_uv_bin(), ".")],
-    datas=[(str(ROOT / "ui" / "dist"), "ui/dist")],
-    hiddenimports=core + stdlib + tray + collect_submodules("webview"),
+    # certifi's cacert.pem: the frozen OpenSSL's own CA path is a build-machine
+    # path, so HTTPS (the catalog) trusts this file instead (engine/tls.py).
+    datas=[(str(ROOT / "ui" / "dist"), "ui/dist")] + collect_data_files("certifi"),
+    hiddenimports=core + ["engine.tls", "certifi"] + stdlib + tray + collect_submodules("webview"),
     excludes=modules + ["tkinter"],
     noarchive=False,
 )

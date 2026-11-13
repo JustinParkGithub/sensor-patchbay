@@ -52,7 +52,7 @@ import urllib.request
 if sys.version_info < (3, 11):
     sys.exit("sensor-patchbay needs Python 3.11+ (found %d.%d)" % sys.version_info[:2])
 
-from engine import catalog, library, modules, paths
+from engine import catalog, library, modules, paths, tls
 from engine.graph import Graph
 from engine.loop import EngineLoop
 from engine.registry import (SINKS, SOURCES, describe,
@@ -284,6 +284,7 @@ def main(argv=None):
     # Quit, which raises it with _thread.interrupt_main (a no-op on an ignored
     # signal). Take it back.
     signal.signal(signal.SIGINT, signal.default_int_handler)
+    tls.install_default()
     args = build_parser().parse_args(argv)
     if prepare(args):
         return

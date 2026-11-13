@@ -6,6 +6,7 @@ pyinstaller>=6.10
 pywebview>=5.3        # the native window (WebView2 on Windows, WebKit on macOS, GTK/Qt on Linux)
 pystray>=0.19.5       # the tray icon
 pillow>=10            # draws the tray icon
+certifi>=2024.2     # bundled CA certificates for HTTPS (engine/tls.py)
 uv>=0.7               # bundled: installs the packages uploaded modules declare
 
 # Linux only: pywebview's GTK backend needs PyGObject plus system WebKitGTK, e.g.

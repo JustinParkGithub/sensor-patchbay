@@ -69,6 +69,7 @@ import json
 import os
 import re
 import shutil
+import ssl
 import threading
 import time
 import urllib.parse
@@ -76,7 +77,7 @@ import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
 
-from . import library, modules, paths
+from . import library, modules, paths, tls
 from . import presets as presets_mod
 
 DEFAULT_URL = ("https://raw.githubusercontent.com/JustinParkGithub/"
@@ -125,10 +126,12 @@ def _fetch(url: str, limit: int = library.MAX_UPLOAD) -> bytes:
         raise CatalogError(f"unsupported URL scheme: {url}")
     req = urllib.request.Request(url, headers={"User-Agent": "sensor-patchbay"})
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as res:
+        with urllib.request.urlopen(req, timeout=TIMEOUT, context=tls.make_ssl_context()) as res:
             data = res.read(limit + 1)
     except OSError as e:          # URLError, HTTPError, timeouts, missing files
-        raise CatalogError(f"couldn't fetch {url}: {getattr(e, 'reason', e)}") from None
+        reason = getattr(e, "reason", e)
+        hint = f" [{tls.describe()}]" if isinstance(reason, ssl.SSLError) else ""
+        raise CatalogError(f"couldn't fetch {url}: {reason}{hint}") from None
     if len(data) > limit:
         raise CatalogError(f"{url}: larger than {limit >> 20} MB")
     return data
