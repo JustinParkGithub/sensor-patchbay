@@ -18,7 +18,7 @@ jobs:
         include:
           - os: ubuntu-24.04
             name: linux-x86_64
-          - os: macos-27
+          - os: macos-latest      # Apple silicon (arm64)
             name: macos-arm64
           - os: windows-latest
             name: windows-x86_64
