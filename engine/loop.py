@@ -125,9 +125,13 @@ class EngineLoop:
                 pass
 
     # ---- main loop ------------------------------------------------
+    # Further behind schedule than this (a suspend, a debugger, a long stall),
+    # skip the missed ticks rather than run them back to back.
+    MAX_LAG = 0.25
+
     def _run(self):
         t0 = time.perf_counter()
-        prev = t0
+        prev = deadline = t0
         while not self._stop.is_set():
             now = time.perf_counter()
             dt = now - prev
@@ -135,9 +139,16 @@ class EngineLoop:
             self.step(dt, clock=now - t0)
             # read the rate each tick so set_rate() takes effect live
             period = 1.0 / self.rate if self.rate > 0 else 0.0
-            slack = period - (time.perf_counter() - now)
+            # Pace against fixed deadlines, not "period minus this tick's work":
+            # sleep() overshoots (timer coalescing, a busy machine), and with
+            # relative pacing every overshoot is lost for good, so the real rate
+            # sags well below the setting. Here the next tick just comes sooner.
+            deadline += period
+            slack = deadline - time.perf_counter()
             if slack > 0:
                 time.sleep(slack)
+            elif slack < -self.MAX_LAG:
+                deadline = time.perf_counter()
 
     def step(self, dt: float, clock: float | None = None):
         """One engine tick: read every source, route through the graph, drive every
