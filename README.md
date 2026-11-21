@@ -89,12 +89,19 @@ can be added, multiplied, compared, or joined with *and* / *or*. Pairing a *gate
 and an *unless* on the same modifier gives one button two jobs, like a layer on a
 macropad.
 
-**`chord`** makes a two-button combo. Each button does its own thing when pressed
-alone, and pressing both together does something else *instead*. Open **Combos**
-in the top bar, pick the two buttons and up to three outputs (A alone, B alone,
-A + B), and it patches the cables for you. Presses that land within the *window*
-(60 ms by default) count as together. A solo action starts after the window has
-passed, so keep the window short.
+**Combos** (top bar) gate a source with a trigger, like a dam on a cable. Pick
+the **trigger** (the dam), when it counts as open (*is above* or *is below* a
+level), the **source** (the water) and the **sink**. The source reaches the sink
+only while the trigger is open. Otherwise the sink gets 0. The dialog shows each
+trigger's live value and whether the dam is open, so you can set the level by
+watching it. Hand-tracking values are continuous: `hand.pinch` is about 1 with
+the hand open and about 0 when pinched, so "pinch is below 0.3" means "while
+pinched". A second trigger adds a second lock, and both must be open. The combo
+is an ordinary cable with a `combine` gate (*above*) or `unless` (*below*) per
+trigger, so you can add nodes after them in the inspector to shape the signal.
+
+**`chord`** is the two-button node behind that. With `role=solo` it can also
+make each button do its own thing alone, and something else together.
 
 Signals are either **continuous** (an axis, a level) or **events** (on/off, a
 press). Put a `threshold` or `schmitt` between a continuous signal and an event

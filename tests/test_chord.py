@@ -107,5 +107,47 @@ class ChordNode(unittest.TestCase):
         self.assertEqual(f, [1.0, 1.0, 1.0])
 
 
+
+def carry(role, trigger, partner, window=WINDOW):
+    return [{"type": "chord", "params": {"role": role, "trigger": trigger,
+                                         "input": partner, "window_ms": window}}]
+
+
+class ChordCarriesASource(unittest.TestCase):
+    """trigger set: the buttons pick the moment, the cable's source is the payload."""
+
+    def graph(self):
+        return Graph([
+            Connection("pad/stick", "mouse/dx", carry("both", "pad/a", "pad/b")),
+            Connection("pad/stick", "mouse/scroll", carry("solo", "pad/a", "pad/b")),
+            Connection("pad/stick", "mouse/dx", [*carry("solo", "pad/b", "pad/a"),
+                                                 {"type": "scale", "params": {"factor": -2}}]),
+        ])
+
+    def run_(self, timeline):
+        g, frames = self.graph(), []
+        for ticks, a, b, stick in timeline:
+            for _ in range(ticks):
+                out = g.tick({"pad/a": a, "pad/b": b, "pad/stick": stick}, DT)
+                frames.append((out["mouse/dx"], out["mouse/scroll"]))
+        return frames
+
+    def test_stick_passes_only_while_the_combo_is_held(self):
+        f = self.run_([(5, 0, 0, 0.3), (5, 1, 1, 0.3), (5, 1, 1, -0.7), (3, 0, 0, 0.3)])
+        self.assertEqual([x[0] for x in f[:5]], [0.0] * 5)        # no trigger, no signal
+        self.assertEqual(f[5][0], 0.3)                            # value, not 1.0
+        self.assertEqual(f[12][0], -0.7)                          # follows the source
+        self.assertEqual(f[-1], (0.0, 0.0))
+        self.assertFalse(any(x[1] for x in f))                    # A-alone stays quiet
+
+    def test_each_trigger_routes_the_same_source_differently(self):
+        f = self.run_([(20, 1, 0, 0.5), (3, 0, 0, 0.5), (20, 0, 1, 0.5)])
+        self.assertEqual(f[15], (0.0, 0.5))                       # A alone -> scroll
+        self.assertEqual(f[-1], (-1.0, 0.0))                      # B alone -> dx, scaled
+
+    def test_trigger_is_a_chain_input(self):
+        self.assertEqual(chain_inputs(self.graph().connections[0].chain), ["pad/a", "pad/b"])
+
+
 if __name__ == "__main__":
     unittest.main()

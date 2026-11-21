@@ -113,7 +113,7 @@ class Node:
 Shipped node types: `scale, offset, invert, abs, clamp, deadzone, expo, quantize,
 ema, one_euro, rate_limit, threshold, schmitt, debounce, toggle, hold, combine, chord`.
 
-`chord` (params `role`, `input`, `window_ms`, `level`) is a two-button combo. A
+`chord` (params `role`, `trigger`, `input`, `window_ms`, `level`) is a two-button combo. A
 combo is up to three connections whose chord nodes share one button pair and one
 window: `A → x` (`role=solo`, `input=B`), `B → y` (`solo`, `input=A`) and
 `A → z` (`both`, `input=B`). Each node runs the same state machine over the pair,
@@ -126,6 +126,14 @@ straight away. When a chord is broken, the button still held is spent until it's
 released, but pressing the other one again re-forms the chord. There's no
 separate combo object: the UI's combo builder writes and regroups these
 connections (`ui/src/lib/combos.ts`).
+
+With `trigger` unset, button A is the connection's own source and the node
+outputs a 0/1 gate. With `trigger` set, A is the `trigger` port and B is
+`input`. The connection's source is the payload: it passes through unchanged
+while the role is active, and is 0 otherwise. For example, `stick → mouse.dx`
+with `role=both, trigger=A, input=B` moves the mouse only while A + B is held.
+The payload goes through the same chain, type check and sink as any other
+connection.
 
 ---
 

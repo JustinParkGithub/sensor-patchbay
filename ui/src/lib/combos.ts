@@ -1,29 +1,36 @@
 /**
- * Two-button combos, built from `chord` nodes (see `engine/nodes.py`).
+ * Combos: triggers are locks on a dam across an ordinary cable.
  *
- * A combo is up to three ordinary cables, each starting with a chord node that
- * names the other button and shares one window:
+ * The cable runs source -> sink like any other. Each trigger is a `combine`
+ * node on it that lets the signal through only while its condition holds
+ * (`gate`: trigger >= level, `unless`: trigger < level); otherwise the sink
+ * gets 0. Two triggers are two locks in series, so both must be open. Nodes
+ * after the locks shape the signal as on any other cable.
  *
- *   A -> aloneA   chord role=solo  input=B
- *   B -> aloneB   chord role=solo  input=A
- *   A -> both     chord role=both  input=B
+ *   wrist.x -> mouse.dx   combine op=unless input=hand.pinch level=0.3
+ *                         ("flows while pinched": pinch distance below 0.3)
  *
- * Nothing about a combo is stored apart from those cables, so a preset carries
- * them like any other, and `findCombos` regroups them by reading the chains.
+ * Nothing about a combo is stored apart from that cable, so a preset carries it
+ * like any other, and `findCombos` finds it again by reading the chain. Older
+ * `chord` combos are listed too.
  */
 
 import type { ChainNode, Connection, Graph } from '../types'
 
-export const DEFAULT_WINDOW_MS = 60
+export type When = 'above' | 'below'
+
+/** One trigger: the dam is open while `port` is above / below `level`. */
+export interface Lock {
+  port: string
+  when: When
+  level: number
+}
 
 export interface ComboSpec {
-  a: string
-  b: string
-  windowMs: number
-  /** Sink ports; '' leaves that output unpatched. */
-  aloneA: string
-  aloneB: string
-  both: string
+  locks: Lock[]
+  /** What flows through when every lock is open. */
+  source: string
+  sink: string
 }
 
 export interface ComboCable {
@@ -32,94 +39,74 @@ export interface ComboCable {
   chain: ChainNode[]
 }
 
-/** A combo found in the graph. The outputs are connections, when present. */
+/** A combo found in the graph: one cable with locks (or an older chord) on it. */
 export interface Combo {
-  key: string
-  a: string
-  b: string
-  windowMs: number
-  aloneA: Connection | null
-  aloneB: Connection | null
-  both: Connection | null
+  connection: Connection
+  locks: Lock[]
+  /** Set for `chord` combos, which the builder no longer makes. */
+  chord: { trigger: string; partner: string; role: string } | null
 }
 
-function chordNode(role: 'solo' | 'both', partner: string, windowMs: number): ChainNode {
-  return { type: 'chord', params: { role, input: partner, window_ms: windowMs } }
+export function lockNode(lock: Lock): ChainNode {
+  return {
+    type: 'combine',
+    params: { op: lock.when === 'above' ? 'gate' : 'unless', input: lock.port, level: lock.level },
+  }
 }
 
-/** The cables a spec becomes, one per patched output. */
-export function comboCables(spec: ComboSpec): ComboCable[] {
-  const { a, b, windowMs } = spec
-  const out: ComboCable[] = []
-  if (spec.aloneA) out.push({ source: a, sink: spec.aloneA, chain: [chordNode('solo', b, windowMs)] })
-  if (spec.aloneB) out.push({ source: b, sink: spec.aloneB, chain: [chordNode('solo', a, windowMs)] })
-  if (spec.both) out.push({ source: a, sink: spec.both, chain: [chordNode('both', b, windowMs)] })
-  return out
+/** The cable a spec becomes. */
+export function comboCable(spec: ComboSpec): ComboCable {
+  return { source: spec.source, sink: spec.sink, chain: spec.locks.map(lockNode) }
 }
 
 /** Why a spec can't be built yet, or null when it can. */
 export function comboProblem(spec: ComboSpec): string | null {
-  if (!spec.a || !spec.b) return 'Pick both buttons.'
-  if (spec.a === spec.b) return 'Pick two different buttons.'
-  if (!spec.aloneA && !spec.aloneB && !spec.both) return 'Patch at least one output.'
-  if (!(spec.windowMs >= 0)) return 'The window must be 0 ms or more.'
+  if (!spec.locks.length) return 'Pick a trigger.'
+  if (spec.locks.some((l) => !Number.isFinite(l.level))) return 'Give each trigger a level.'
+  if (new Set(spec.locks.map((l) => l.port)).size !== spec.locks.length) return 'Pick two different triggers.'
+  if (!spec.source) return 'Pick a source to flow through.'
+  if (!spec.sink) return 'Pick a sink.'
   return null
 }
 
-/** The connection's chord node, if its chain has one. */
-function chordOf(c: Connection): { partner: string; role: string; windowMs: number } | null {
-  const node = c.chain.find((n) => n.type === 'chord')
-  if (!node) return null
-  const partner = String(node.params.input ?? '')
-  if (!partner) return null
-  return {
-    partner,
-    role: String(node.params.role ?? 'solo'),
-    windowMs: Number(node.params.window_ms ?? DEFAULT_WINDOW_MS),
-  }
+export function lockOpen(lock: Lock, value: number): boolean {
+  return lock.when === 'above' ? value >= lock.level : value < lock.level
 }
 
-/**
- * Regroup the graph's chord cables into combos: one per unordered button pair
- * and window. `a` is whichever button the combo cable (or else the first
- * cable found) starts from.
- */
-export function findCombos(graph: Graph): Combo[] {
-  const combos = new Map<string, Combo>()
-  for (const c of graph.connections) {
-    const chord = chordOf(c)
-    if (!chord) continue
-    const pair = [c.source, chord.partner].sort()
-    const key = `${pair[0]}|${pair[1]}|${chord.windowMs}`
-    let combo = combos.get(key)
-    if (!combo) {
-      combo = { key, a: c.source, b: chord.partner, windowMs: chord.windowMs, aloneA: null, aloneB: null, both: null }
-      combos.set(key, combo)
-    }
-    if (chord.role === 'both') {
-      if (!combo.both && !combo.aloneA && !combo.aloneB) {
-        combo.a = c.source
-        combo.b = chord.partner
+export function describeLock(lock: Lock, name: (port: string) => string = (p) => p): string {
+  return `${name(lock.port)} ${lock.when === 'above' ? '≥' : '<'} ${lock.level}`
+}
+
+function lockOf(node: ChainNode): Lock | null {
+  const input = String(node.params.input ?? '')
+  if (node.type !== 'combine' || !input) return null
+  const op = node.params.op ?? 'gate'
+  if (op !== 'gate' && op !== 'unless') return null
+  return { port: input, when: op === 'gate' ? 'above' : 'below', level: Number(node.params.level ?? 0.5) }
+}
+
+function comboOf(c: Connection): Combo | null {
+  const locks = c.chain.map(lockOf).filter((l): l is Lock => l !== null)
+  const node = c.chain.find((n) => n.type === 'chord' && n.params.input)
+  const chord = node
+    ? {
+        trigger: String(node.params.trigger || c.source),
+        partner: String(node.params.input),
+        role: String(node.params.role ?? 'solo'),
       }
-      combo.both ??= c
-    } else if (c.source === combo.a) {
-      combo.aloneA ??= c
-    } else {
-      combo.aloneB ??= c
-    }
-  }
-  return [...combos.values()]
+    : null
+  return locks.length || chord ? { connection: c, locks, chord } : null
 }
 
-/** Every connection a combo is made of. */
-export function comboConnections(combo: Combo): Connection[] {
-  return [combo.aloneA, combo.aloneB, combo.both].filter((c): c is Connection => c !== null)
+/** Every gated cable in the graph. */
+export function findCombos(graph: Graph): Combo[] {
+  return graph.connections.map(comboOf).filter((c): c is Combo => c !== null)
 }
 
 /**
- * Plain cables (no chord node) from either button: they keep firing whatever
- * the combo decides, which is usually not what's wanted.
+ * Plain cables from the same source to the same sink: they flow around the
+ * dam, so the sink gets the signal whether the trigger is held or not.
  */
-export function directCables(graph: Graph, buttons: string[]): Connection[] {
-  return graph.connections.filter((c) => buttons.includes(c.source) && !chordOf(c))
+export function bypassCables(graph: Graph, source: string, sink: string): Connection[] {
+  return graph.connections.filter((c) => c.source === source && c.sink === sink && !comboOf(c))
 }

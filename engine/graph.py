@@ -29,8 +29,8 @@ class Connection:
 
     def process(self, x, dt, bus):
         for node in self._nodes:
-            if node.input_port:
-                node.other = bus.get(node.input_port, 0.0)
+            for name, port in node.input_ports.items():
+                node.inputs[name] = bus.get(port, 0.0)
             x = node.process(x, dt)
         self.last = x
         self.activity += 0.25 * (min(1.0, abs(x)) - self.activity)

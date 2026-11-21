@@ -4,9 +4,9 @@ A node implements ``process(x: float, dt: float) -> float`` and ``reset()``.
 ``NODE_SPECS`` describes the parameters so the web UI can build an editor with no
 hard-coded knowledge of any particular node.
 
-A node with a ``{"port": "source"}`` parameter also reads a second port off the
-bus: the connection copies that port's value into ``node.other`` before each
-``process`` call (see :class:`Combine`).
+A node with ``{"port": "source"}`` parameters also reads those ports off the
+bus: before each ``process`` call the connection copies each one's value into
+``node.inputs[param name]`` (see :class:`Combine` and :class:`Chord`).
 """
 
 from __future__ import annotations
@@ -16,10 +16,17 @@ import math
 
 class Node:
     type = "identity"
-    input_port = None    # bus port copied into self.other each tick, if any
 
     def __init__(self, **params):
         self.params = params
+        # {param name: bus port} for this node's port-typed params that are set;
+        # the connection fills self.inputs from them each tick.
+        self.input_ports = {
+            name: str(params[name])
+            for name, spec in NODE_SPECS.get(self.type, {}).items()
+            if isinstance(spec, dict) and "port" in spec and params.get(name)
+        }
+        self.inputs = {name: 0.0 for name in self.input_ports}
 
     def process(self, x: float, dt: float) -> float:
         return x
@@ -289,16 +296,11 @@ class Combine(Node):
     """
     type = "combine"
 
-    def __init__(self, **p):
-        super().__init__(**p)
-        self.input_port = p.get("input") or None
-        self.other = 0.0
-
     def reset(self):
-        self.other = 0.0
+        self.inputs = {name: 0.0 for name in self.input_ports}
 
     def process(self, x, dt):
-        y = self.other
+        y = self.inputs.get("input", 0.0)
         op = self.params.get("op", "gate")
         level = float(self.params.get("level", 0.5))
         if op == "gate":
@@ -321,12 +323,21 @@ class Combine(Node):
 
 
 class Chord(Node):
-    """Two-button combo: this cable's button (A) and ``input`` (B).
+    """Two-button combo over buttons A and B (``input``).
 
-    A combo is three cables, each with a chord node naming the other button and
-    the same ``window_ms``: A -> action (role ``solo``), B -> action (``solo``,
-    input A), and A -> special (``both``, input B). Every chord node runs the
-    same state machine over the pair, so the three always agree on what happened.
+    Which button is A, and what the cable carries, depends on ``trigger``:
+
+    unset    A is this cable's own signal and the output is a 0/1 gate: the
+             combo *is* the signal (press A+B -> press a key).
+    set      A is the ``trigger`` port and the cable's signal passes through
+             untouched while the role is active, else 0. The combo only decides
+             *when*; the source decides *what* (hold A+B -> stick drives the
+             mouse). Nodes after the chord shape it as on any other cable.
+
+    A combo is up to three cables, each with a chord node naming the other
+    button and the same ``window_ms``: A alone (role ``solo``), B alone
+    (``solo``, buttons swapped) and A+B (``both``). Every chord node runs the
+    same state machine over the pair, so they always agree on what happened.
 
     solo   1 while A is held *on its own*. A press waits up to ``window_ms`` for B;
            if B joins, it's a chord and A's solo never fires. A tap shorter than
@@ -346,12 +357,10 @@ class Chord(Node):
 
     def __init__(self, **p):
         super().__init__(**p)
-        self.input_port = p.get("input") or None
-        self.other = 0.0
         self.reset()
 
     def reset(self):
-        self.other = 0.0
+        self.inputs = {name: 0.0 for name in self.input_ports}
         self.clock = 0.0
         self.a = self.b = self.UP          # status of this button / the partner
         self.ta = self.tb = 0.0            # when each went into WAIT
@@ -404,10 +413,16 @@ class Chord(Node):
 
     def process(self, x, dt):
         level = float(self.params.get("level", 0.5))
-        tapped = self._step(x >= level, self.other >= level, dt)
+        passthrough = "trigger" in self.input_ports
+        a = self.inputs["trigger"] if passthrough else x
+        tapped = self._step(a >= level, self.inputs.get("input", 0.0) >= level, dt)
         if self.params.get("role", "solo") == "both":
-            return 1.0 if self.a == self.CHORD else 0.0
-        return 1.0 if self.a == self.SOLO or tapped else 0.0
+            on = self.a == self.CHORD
+        else:
+            on = self.a == self.SOLO or tapped
+        if passthrough:
+            return x if on else 0.0
+        return 1.0 if on else 0.0
 
 
 NODE_CLASSES = {
@@ -442,6 +457,7 @@ NODE_SPECS = {
                    "input": {"port": "source"},
                    "level": [0.5, -180.0, 180.0, 0.05]},
     "chord":      {"role": {"choices": ["solo", "both"]},
+                   "trigger": {"port": "source"},
                    "input": {"port": "source"},
                    "window_ms": [60.0, 0.0, 1000.0, 5.0],
                    "level": [0.5, -180.0, 180.0, 0.05]},
@@ -449,7 +465,7 @@ NODE_SPECS = {
 
 
 def chain_inputs(chain: list | None) -> list[str]:
-    """The extra source ports a serialised chain reads (its ``combine`` inputs)."""
+    """The extra source ports a serialised chain reads (``combine``/``chord`` inputs)."""
     ports = []
     for node in chain or []:
         for name, spec in NODE_SPECS.get(node.get("type"), {}).items():
