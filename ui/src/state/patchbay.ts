@@ -14,6 +14,7 @@
 
 import { api, ApiError, errorMessage } from '../lib/api'
 import type { CatalogKind, ConnectionPatch } from '../lib/api'
+import type { ComboCable } from '../lib/combos'
 import { buildPortIndex, compatibleSinks, lastConnectionBetween, wiredPorts } from '../lib/ports'
 import type { PortEntry } from '../lib/ports'
 import { EMPTY_CATALOG, EMPTY_GRAPH } from '../types'
@@ -359,6 +360,38 @@ export class Patchbay {
     } catch (e) {
       toastError(e)
     }
+  }
+
+  // ---- combos ----------------------------------------------------
+  /**
+   * Patch a combo's cables (see `lib/combos.ts`). Resolves false if any was
+   * refused; the graph is re-read either way, so what did land shows up.
+   */
+  async addCombo(cables: ComboCable[]): Promise<boolean> {
+    let ok = true
+    for (const { source, sink, chain } of cables) {
+      try {
+        await api.connect(source, sink, chain)
+      } catch (e) {
+        ok = false
+        toastError(e)
+        break
+      }
+    }
+    await this.refreshGraph().catch(toastError)
+    return ok
+  }
+
+  /** Delete several cables at once (a whole combo). */
+  async deleteConnections(ids: string[]): Promise<void> {
+    try {
+      for (const id of ids) await api.disconnect(id)
+      const { selectedId } = this.current
+      if (selectedId && ids.includes(selectedId)) this.set({ selectedId: null })
+    } catch (e) {
+      toastError(e)
+    }
+    await this.refreshGraph().catch(toastError)
   }
 
   private async applyPatch(patch: ConnectionPatch): Promise<void> {

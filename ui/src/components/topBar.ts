@@ -2,6 +2,7 @@ import { api } from '../lib/api'
 import { h } from '../lib/dom'
 import { live } from '../state/live'
 import { toastError } from '../state/toast'
+import { comboButton } from './comboPanel'
 import { libraryBar } from './libraryBar'
 import { presetBar } from './presetBar'
 import { statusBar } from './statusBar'
@@ -14,6 +15,7 @@ export function topBar(): HTMLElement {
     h('div', { className: 'brand' }, h('span', { className: 'glyph' }, '▚'), ' sensor · patchbay'),
     presetBar(),
     libraryBar(),
+    comboButton(),
     zoomControl(),
     h('div', { className: 'spacer' }),
     statusBar(),

@@ -320,10 +320,101 @@ class Combine(Node):
         return x
 
 
+class Chord(Node):
+    """Two-button combo: this cable's button (A) and ``input`` (B).
+
+    A combo is three cables, each with a chord node naming the other button and
+    the same ``window_ms``: A -> action (role ``solo``), B -> action (``solo``,
+    input A), and A -> special (``both``, input B). Every chord node runs the
+    same state machine over the pair, so the three always agree on what happened.
+
+    solo   1 while A is held *on its own*. A press waits up to ``window_ms`` for B;
+           if B joins, it's a chord and A's solo never fires. A tap shorter than
+           the window still fires, as a one-tick pulse on release. A press that
+           lands while B is already held (from outside the window) is solo at once.
+    both   1 while the chord is held: both pressed within ``window_ms`` of each
+           other. When one is let go the chord ends, and the one still held is
+           spent: it fires nothing until released. While it's held, pressing the
+           other again re-forms the chord (hold B, tap A repeatedly).
+
+    "Pressed" means ``>= level``. The cost of the window is latency: a solo
+    action starts ``window_ms`` after the press.
+    """
+    type = "chord"
+
+    UP, WAIT, SOLO, CHORD, SPENT = range(5)
+
+    def __init__(self, **p):
+        super().__init__(**p)
+        self.input_port = p.get("input") or None
+        self.other = 0.0
+        self.reset()
+
+    def reset(self):
+        self.other = 0.0
+        self.clock = 0.0
+        self.a = self.b = self.UP          # status of this button / the partner
+        self.ta = self.tb = 0.0            # when each went into WAIT
+        self.prev_a = self.prev_b = False
+
+    def _step(self, a, b, dt):
+        """Advance the pair. Returns True if A was tapped (released while waiting)."""
+        UP, WAIT, SOLO, CHORD, SPENT = self.UP, self.WAIT, self.SOLO, self.CHORD, self.SPENT
+        self.clock += dt
+        window = max(0.0, float(self.params.get("window_ms", 60.0))) / 1000.0
+        rise_a, rise_b = a and not self.prev_a, b and not self.prev_b
+        self.prev_a, self.prev_b = a, b
+        tapped = False
+
+        # releases: a chord broken by one side leaves the other spent
+        if not a and self.a != UP:
+            tapped = self.a == WAIT
+            if self.a == CHORD and self.b == CHORD:
+                self.b = SPENT
+            self.a = UP
+        if not b and self.b != UP:
+            if self.b == CHORD and self.a == CHORD:
+                self.a = SPENT
+            self.b = UP
+
+        # presses
+        if rise_a and rise_b:
+            self.a = self.b = CHORD
+        elif rise_a:
+            if self.b in (WAIT, SPENT, CHORD):
+                self.a = self.b = CHORD
+            elif self.b == SOLO:
+                self.a = SOLO
+            else:
+                self.a, self.ta = WAIT, self.clock
+        elif rise_b:
+            if self.a in (WAIT, SPENT, CHORD):
+                self.a = self.b = CHORD
+            elif self.a == SOLO:
+                self.b = SOLO
+            else:
+                self.b, self.tb = WAIT, self.clock
+
+        # the window ran out with nobody joining
+        if self.a == WAIT and self.clock - self.ta >= window:
+            self.a = SOLO
+        if self.b == WAIT and self.clock - self.tb >= window:
+            self.b = SOLO
+        return tapped
+
+    def process(self, x, dt):
+        level = float(self.params.get("level", 0.5))
+        tapped = self._step(x >= level, self.other >= level, dt)
+        if self.params.get("role", "solo") == "both":
+            return 1.0 if self.a == self.CHORD else 0.0
+        return 1.0 if self.a == self.SOLO or tapped else 0.0
+
+
 NODE_CLASSES = {
     c.type: c for c in (
         Scale, Offset, Invert, Abs, Clamp, Deadzone, Expo, Quantize,
         EMA, OneEuro, RateLimit, Threshold, Schmitt, Debounce, Toggle, Hold, Combine,
+        Chord,
     )
 }
 
@@ -349,6 +440,10 @@ NODE_SPECS = {
     "hold":       {"ms": [120.0, 10.0, 5000.0, 10.0]},
     "combine":    {"op": {"choices": ["gate", "unless", "add", "mul", "min", "max", "and", "or"]},
                    "input": {"port": "source"},
+                   "level": [0.5, -180.0, 180.0, 0.05]},
+    "chord":      {"role": {"choices": ["solo", "both"]},
+                   "input": {"port": "source"},
+                   "window_ms": [60.0, 0.0, 1000.0, 5.0],
                    "level": [0.5, -180.0, 180.0, 0.05]},
 }
 

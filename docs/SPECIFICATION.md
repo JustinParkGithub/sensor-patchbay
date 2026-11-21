@@ -111,7 +111,21 @@ class Node:
   source module removes every connection that reads it.
 
 Shipped node types: `scale, offset, invert, abs, clamp, deadzone, expo, quantize,
-ema, one_euro, rate_limit, threshold, schmitt, debounce, toggle, hold, combine`.
+ema, one_euro, rate_limit, threshold, schmitt, debounce, toggle, hold, combine, chord`.
+
+`chord` (params `role`, `input`, `window_ms`, `level`) is a two-button combo. A
+combo is up to three connections whose chord nodes share one button pair and one
+window: `A → x` (`role=solo`, `input=B`), `B → y` (`solo`, `input=A`) and
+`A → z` (`both`, `input=B`). Each node runs the same state machine over the pair,
+so the three always agree. A press waits up to `window_ms` for the other button.
+If the other button arrives in time, it's a chord, and `both` outputs 1 while the
+chord is held. If not, the press is solo, and `solo` outputs 1 while it's held.
+A solo tap shorter than the window fires a one-tick pulse on release. A press
+that lands while the other button is already held as a solo press is solo
+straight away. When a chord is broken, the button still held is spent until it's
+released, but pressing the other one again re-forms the chord. There's no
+separate combo object: the UI's combo builder writes and regroups these
+connections (`ui/src/lib/combos.ts`).
 
 ---
 

@@ -71,8 +71,8 @@ export const api = {
   state: () => request<EngineState>('GET', '/api/state'),
   graph: () => request<Graph>('GET', '/api/graph'),
 
-  connect: (source: string, sink: string) =>
-    request<Connection>('POST', '/api/connect', { source, sink }),
+  connect: (source: string, sink: string, chain?: ChainNode[]) =>
+    request<Connection>('POST', '/api/connect', { source, sink, chain }),
   disconnect: (id: string) => request<{ ok: boolean }>('POST', '/api/disconnect', { id }),
   updateConnection: (patch: ConnectionPatch) =>
     request<Connection>('PUT', '/api/connection', patch),

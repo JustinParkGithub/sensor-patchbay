@@ -81,12 +81,20 @@ A cable's chain is a list of nodes that the signal passes through in order:
 | turn a level into on/off | `threshold`, `schmitt` |
 | tidy a button | `debounce`, `hold`, `toggle` |
 | mix in a second signal | `combine` |
+| two-button combos | `chord` (or the **Combos** button) |
 
 **`combine`** brings a second source into a cable. With it, one signal can gate
 another (pass only while a button is held, or only while it isn't), or the two
 can be added, multiplied, compared, or joined with *and* / *or*. Pairing a *gate*
 and an *unless* on the same modifier gives one button two jobs, like a layer on a
 macropad.
+
+**`chord`** makes a two-button combo. Each button does its own thing when pressed
+alone, and pressing both together does something else *instead*. Open **Combos**
+in the top bar, pick the two buttons and up to three outputs (A alone, B alone,
+A + B), and it patches the cables for you. Presses that land within the *window*
+(60 ms by default) count as together. A solo action starts after the window has
+passed, so keep the window short.
 
 Signals are either **continuous** (an axis, a level) or **events** (on/off, a
 press). Put a `threshold` or `schmitt` between a continuous signal and an event
